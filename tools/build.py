@@ -1,6 +1,7 @@
 """Build the HP Prime program bundle and readable source.
 
-Native container skeleton from hp-prime-kit/templates/code.hpprgm:
+Native container skeleton and blank-app descriptor from
+hp-prime-kit/templates/code.hpprgm and templates/app/blank.hpapp:
 https://github.com/JordiRigau/hp-prime-kit (MIT License)
 Copyright (c) 2026 Jordi Rigau
 
@@ -24,6 +25,7 @@ SOFTWARE.
 """
 from pathlib import Path
 import base64
+import binascii
 import hashlib
 import json
 import re
@@ -138,6 +140,61 @@ def native_sources():
 SKELETON = zlib.decompress(base64.b64decode(
     'eNqrSeza9O////8MQMABxKz/6xkQbHsmBHs/WPwbUGQfgwPjOyDtAuR3Mzgw+DIkMmQy5DGQC0DmtzI0gNnTgObOZjjA8IaZgaGPyYEpgQFqD5MDA6VABIjbmBoY/qOBUTtG7Ri1Y2DtAADSls3W'))
 
+# Base App: None. Always rebuild from the clean descriptor, rather than a
+# calculator-saved copy that may carry the user's last view or settings.
+APP_NAME = 'SurveyPrime'
+APP_DESCRIPTOR = bytes.fromhex(
+    '7c618ab2ffffffff010001000800000085ff7f00140000000800000085ffbf0001000000'
+    '0800000085ffff00000000000800000085ff3f01000000000800000085ff7f0104000000'
+    '0800000085ffbf01000000000c00000085ffff010000000020000000140000001e060905'
+    '0c000000080000000506490000000000')
+
+def app_source():
+    text = (ROOT/'src/app.ppl').read_text(encoding='utf-8')
+    Parser(text).program()
+    return text
+
+def app_icon():
+    """Draw an original survey-boundary symbol as the native 73x74 RGBA PNG."""
+    width,height = 73,74
+    background = (22,47,66,255)
+    pixels = bytearray(background*(width*height))
+    def dot(x,y,r,color):
+        for yy in range(max(0,y-r),min(height,y+r+1)):
+            for xx in range(max(0,x-r),min(width,x+r+1)):
+                if (xx-x)**2+(yy-y)**2<=r*r:
+                    offset=4*(yy*width+xx)
+                    pixels[offset:offset+4]=bytes(color)
+    def line(a,b,color,r=1):
+        dx,dy=b[0]-a[0],b[1]-a[1]
+        steps=max(abs(dx),abs(dy),1)
+        for ii in range(steps+1):
+            dot(round(a[0]+dx*ii/steps),round(a[1]+dy*ii/steps),r,color)
+    grid=(45,75,91,255)
+    for x in (12,24,36,48,60): line((x,8),(x,66),grid,0)
+    for y in (14,26,38,50,62): line((7,y),(66,y),grid,0)
+    boundary=(245,249,250,255)
+    accent=(88,218,195,255)
+    points=((15,53),(21,24),(45,18),(58,43),(42,59))
+    for ii,point in enumerate(points):
+        line(point,points[(ii+1)%len(points)],boundary,1)
+        dot(*point,3,accent)
+    line((50,26),(50,8),accent,1)
+    line((50,8),(46,14),accent,1)
+    line((50,8),(54,14),accent,1)
+    def chunk(tag,data):
+        return struct.pack('>I',len(data))+tag+data+struct.pack('>I',binascii.crc32(tag+data)&0xffffffff)
+    rows=b''.join(b'\0'+pixels[y*width*4:(y+1)*width*4] for y in range(height))
+    return (b'\x89PNG\r\n\x1a\n'+chunk(b'IHDR',struct.pack('>IIBBBBB',width,height,8,6,0,0,0))
+            +chunk(b'IDAT',zlib.compress(rows,9))+chunk(b'IEND',b''))
+
+def app_files():
+    """The four files required for a native Apps-library application."""
+    return {APP_NAME+'.hpapp':APP_DESCRIPTOR,
+            APP_NAME+'.hpappnote':b'\0\0',
+            APP_NAME+'.hpappprgm':encode(app_source()),
+            'icon.png':app_icon()}
+
 def encode(text):
     body = (text+'\0').encode('utf-16le')
     data = bytearray(SKELETON[:152]+body+SKELETON[152:])
@@ -169,6 +226,15 @@ def build():
         (dest/'Source'/(name+'.ppl')).write_text(text,encoding='utf-8',newline='\n')
         artifacts.extend(['Programs/'+name+'.hpprgm','Source/'+name+'.ppl'])
         print(f'Built {name}: {len(text)} characters, {len(native)} native bytes')
+    app_relative = 'Application/'+APP_NAME+'.hpappdir/'
+    (dest/app_relative).mkdir(parents=True,exist_ok=True)
+    for name,data in app_files().items():
+        relative = app_relative+name
+        (dest/relative).write_bytes(data)
+        artifacts.append(relative)
+    (dest/'Source'/(APP_NAME+'.app.ppl')).write_text(app_source(),encoding='utf-8',newline='\n')
+    artifacts.append('Source/'+APP_NAME+'.app.ppl')
+    print('Built native app: '+app_relative)
     # Only generated build files belong in the manifest. Local notes or older
     # documentation in the output directory are not build inputs or artifacts.
     manifest = {name:hashlib.sha256((dest/name).read_bytes()).hexdigest()

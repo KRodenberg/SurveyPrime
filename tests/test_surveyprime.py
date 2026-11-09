@@ -1,13 +1,15 @@
 """Independent fixtures and keypad regressions executing the shipped PPL source."""
 from pathlib import Path
 import math
+import binascii
 import random
+import struct
 import sys
 import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'tools'))
-from build import source, encode, decode, portable_locals, native_sources
+from build import source, encode, decode, portable_locals, native_sources, app_files, app_source, APP_NAME
 from ppl_runner import Parser, Runner
 
 
@@ -34,6 +36,35 @@ class SurveyTests(unittest.TestCase):
             self.assertEqual(data[:4],bytes.fromhex('7c618ab2'))
             self.assertEqual(decode(data),text)
             self.assertLess(len(text),30000,name)
+
+    def test_native_application_package(self):
+        files=app_files()
+        self.assertEqual(set(files),{APP_NAME+'.hpapp',APP_NAME+'.hpappnote',
+                                     APP_NAME+'.hpappprgm','icon.png'})
+        descriptor=files[APP_NAME+'.hpapp']
+        self.assertEqual(descriptor[:4],bytes.fromhex('7c618ab2'))
+        self.assertEqual(struct.unpack_from('<I',descriptor,20)[0],20)  # Base App: None
+        self.assertEqual(decode(files[APP_NAME+'.hpappprgm']),app_source())
+        png=files['icon.png']
+        self.assertEqual(png[:8],b'\x89PNG\r\n\x1a\n')
+        self.assertEqual(struct.unpack_from('>II',png,16),(73,74))
+        offset=8
+        while offset<len(png):
+            size=struct.unpack_from('>I',png,offset)[0]
+            tag_and_data=png[offset+4:offset+8+size]
+            self.assertEqual(binascii.crc32(tag_and_data)&0xffffffff,
+                             struct.unpack_from('>I',png,offset+8+size)[0])
+            offset+=12+size
+        self.assertEqual(offset,len(png))
+
+    def test_app_start_opens_menu_and_restores_settings(self):
+        runner=Runner(self.text+'\n'+app_source())
+        runner.globals.update(HAngle=0,AAngle=2,HFormat=2,AFormat=2,HDigits=7,HSeparator=1)
+        runner.keys=[4]
+        runner.call('START')
+        self.assertTrue(any('SURVEY PRIME' in str(item) for item in runner.drawn))
+        for name,value in {'HAngle':0,'AAngle':2,'HFormat':2,'AFormat':2,'HDigits':7,'HSeparator':1}.items():
+            self.assertEqual(runner.globals[name],value)
 
     def test_selftest(self):
         self.r.keys=[30]

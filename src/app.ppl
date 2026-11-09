@@ -1,0 +1,6 @@
+// Native HP Prime app entry point, called from the Apps library.
+// The installed support programs own calculations, menus and saved jobs.
+EXPORT START()
+BEGIN
+  SURVEYPRIME();
+END;

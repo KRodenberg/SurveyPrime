@@ -2,17 +2,18 @@
 
 ## Purpose and status
 
-Build a surveying calculator for **HP Prime**, using HP PPL. HP 50g User RPL programs
+Build a surveying application for **HP Prime**, using HP PPL. HP 50g User RPL programs
 are a different platform. Prioritize lot closes, conversions, and angle addition/
 subtraction before extending other surveying tools. All calculator interaction must
 work with physical keys; the user's touchscreen cannot be used.
 
 Repository: https://github.com/KRodenberg/SurveyPrime
 
-The program is a **development preview**. There are 39 passing host regression tests.
-All three generated programs have passed native editor checks on the connected
-Prime, and the main menu launches. Physical-key and calculation acceptance is in
-progress. Never describe host interpretation or
+SurveyPrime is a **development preview** with a native Apps-library package and
+41 passing host regression tests. Its three support programs previously passed native
+editor checks on the connected Prime, and their main menu launches. The new app's
+installation and Apps-library launch still need device verification. Physical-key and
+calculation acceptance is in progress. Never describe host interpretation or
 successful transfer as proof that HP firmware executes the program.
 
 ## Required repository files
@@ -20,7 +21,7 @@ successful transfer as proof that HP firmware executes the program.
 | Path | Role |
 |---|---|
 | `src/*.ppl` | Original PPL program modules |
-| `tools/build.py` | Assemble source and generate the native program container |
+| `tools/build.py` | Assemble support programs and the native app, icon and containers |
 | `tools/ppl_runner.py` | Execute PPL for host regression checks |
 | `tests/test_surveyprime.py` | Calculation, keypad, settings and container regressions |
 | `.github/workflows/validate.yml` | Run the build and regression checks on GitHub |
@@ -41,24 +42,34 @@ python -m unittest discover -s tests -v
 python tools/build.py
 ```
 
-From a clean checkout the build creates seven files in the ignored `Final Output/`:
+From a clean checkout the build creates twelve files in the ignored `Final Output/`:
 
+- `Application/SurveyPrime.hpappdir/`: the native app folder containing
+  `SurveyPrime.hpapp`, `SurveyPrime.hpappprgm`, `SurveyPrime.hpappnote` and `icon.png`.
+  This is the entry selected in the calculator's **Apps** library.
 - `Programs/SURVEYLIB.hpprgm`, `Programs/SURVEYTOOLS1.hpprgm`,
-  `Programs/SURVEYPRIME.hpprgm`: native programs,
-  installed in that order. Launch only `SURVEYPRIME()` for the surveying menus.
-- Matching `.ppl` files in `Source/`: readable source for inspection or the computer editor.
-- `SHA256.json`: hashes of all six generated program/source files.
+  `Programs/SURVEYPRIME.hpprgm`: required support programs, installed in that order.
+- Matching support `.ppl` files and `SurveyPrime.app.ppl` in `Source/`.
+- `SHA256.json`: hashes of the eleven generated app, program and source files.
 
 The native container uses the Prime magic `7c618ab2`, a source-only Connectivity Kit
-skeleton and UTF-16LE source. Its name comes from the filename. The generic skeleton's
-MIT notice is preserved in `tools/build.py`; never remove it.
+skeleton and UTF-16LE source. Its name comes from the filename. The generic skeleton
+and Base App: None descriptor's MIT notice is preserved in `tools/build.py`; never
+remove it. The app descriptor is rebuilt from clean defaults, with a generated
+73 x 74 PNG survey icon and an empty note. Do not replace it with a calculator-saved
+descriptor carrying another app's settings or last view.
 
 The builder hoists persistent variables into the first program, exports namespaced
 helpers, orders helpers before callers, and splits at function boundaries below
-30,000 source characters per program. It emits declarations before ordered local
+30,000 source characters per support program. It emits declarations before ordered local
 initializations. Keep the dependency order, size budget and declaration handling
 intact. Do not introduce cyclic function dependencies or rely on local reference
 folders, downloaded tools or documentation to build.
+
+`src/app.ppl` exports the native `START()` hook and calls the installed
+`SURVEYPRIME()` menu. Keep the app entry small. The support modules avoid the native
+compiler stalls seen with a single large program, and own the persistent `SC_` jobs.
+Installing only the new app wrapper must not replace those existing jobs.
 
 The host interpreter covers this project's PPL subset. It checks actual source, with
 independent fixtures including the Quickclose curved-lot example, PROJ projection/
@@ -68,10 +79,12 @@ geodesic results, and simulated keypad workflows. It is not HP's compiler.
 
 1. Build and run the host tests using the commands above.
 2. Open the [official HP Prime Connectivity Kit](https://updates.moravia-consulting.com/)
-   on the computer and connect a powered-on HP Prime by USB.
+   and connect a powered-on HP Prime by USB. Exit any running menu using the physical
+   Esc key before backup or transfer; On can interrupt if needed.
 3. Back up the calculator before replacing any installed program. Exported `SC_` data
    and saved jobs must be preserved before program replacement or memory reset.
-4. In `Final Output/Programs/`, open and send `SURVEYLIB.hpprgm`, then
+4. If the support programs are not installed or are being updated, in
+   `Final Output/Programs/` open and send `SURVEYLIB.hpprgm`, then
    `SURVEYTOOLS1.hpprgm`, then `SURVEYPRIME.hpprgm`. Check each dependency before
    checking the next program.
    The names and order matter because later programs call earlier exported helpers.
@@ -82,16 +95,19 @@ geodesic results, and simulated keypad workflows. It is not HP's compiler.
    arrows, press **Enter** to open its editor, then **Esc** to save/check. Fix any
    reported error before proceeding. The catalog moves recently opened programs to
    the top, so verify the highlighted name rather than counting from a stale order.
-6. Exit any running program using Esc; On can interrupt a program. Then press
-   **Home**, use Alpha to enter **`SURVEYPRIME()`**, release Alpha lock, and press
-   **Enter**. The Home title shows the active app's name; that title alone does not
-   indicate that its custom program is running.
-7. In SurveyPrime press **9**, then **2**, to run the self-test. Alternatively enter
+6. Import the complete `Final Output/Application/SurveyPrime.hpappdir` folder into
+   the Kit and send it to the calculator's Applications. Keep its four files together.
+7. On the calculator press **Apps**, highlight **SurveyPrime** with the arrow keys,
+   then press **Enter** to start. Its native `START()` hook opens the surveying menu.
+   Use Esc to leave the menu before switching apps. No touchscreen input or typed
+   program name is required for normal use.
+8. In SurveyPrime press **9**, then **2**, to run the self-test. Alternatively enter
    **`SURVEYTEST()`** from Home. Expect **16 / 16 passed**.
 
-Launching by name from Home avoids the Program Catalog's touchscreen Run button.
+For diagnostics the support entry `SURVEYPRIME()` can still run from Home. The Home
+title shows the active app's name; that title alone does not mean its menu is running.
 The earlier standalone diagnostic `SPTEST()` may still exist on the original device;
-the packaged program exports `SURVEYTEST()` so their names do not conflict.
+the surveying app uses `SURVEYTEST()` so their names do not conflict.
 
 After a native syntax check, verify every menu and numeric form using only physical
 keys. Enter, edit, save and reopen a lot; exit/restart to check persistence. Check
@@ -121,6 +137,7 @@ the actual device/firmware and observed results here when these checks are compl
 
 | Module | Responsibilities |
 |---|---|
+| `app.ppl` | Native Apps-library `START()` hook that launches the surveying menu |
 | `core.ppl` | DMS, bearings, closure/area, Bowditch, missing elements, unit factors |
 | `keypad.ppl` | GETKEY interaction, menus, numeric forms, reports, formatting |
 | `priority_ui.ppl` | Lot workflows/jobs/exchange, conversions and angle arithmetic |
@@ -148,11 +165,13 @@ do not add touch APIs, touch buttons, MOUSE, or touch-dependent input dialogs.
 
 - [x] Priority lot-close, conversion and angle workflows implemented before extensions.
 - [x] Additional COGO, levelling, traverse, utility, geodesy and road modules implemented.
-- [x] 39 host tests passing; calculation self-test has 16 priority cases.
+- [x] 41 host tests passing; calculation self-test has 16 priority cases.
+- [x] Native app folder, clean descriptor, START hook and generated survey icon.
 - [x] Real native container packaging, independent container reading and USB source round-trips.
 - [x] Minimal build/validation repository; generated output and local materials ignored.
 - [x] Native editor/compiler acceptance of all three generated programs.
 - [x] Main menu launched on the physical calculator.
+- [ ] New app installed and launched from the physical Apps library.
 - [ ] Successful on-calculator self-test.
 - [ ] Native keypad, graphics, persistence and Home-setting acceptance checks.
 - [ ] Regional GDF import/catalogs and generalized nonconvex/curved fixed-area cuts.
@@ -174,6 +193,13 @@ use individually paced keys for names. USB-injected keys did not move the runnin
 GETKEY menu. A physical-key test has been requested; do not claim it passed until
 its result is observed.
 
+The Apps-library conversion adds a small native app while retaining the already
+compiled support programs. The launcher, package structure, PNG dimensions/checksums
+and settings restoration have host coverage. Installation is awaiting an idle
+calculator: a full backup timed out while the existing GETKEY menu was running, and
+physical Esc/On followed by Home has been requested. Do not replace an app or saved
+jobs without first obtaining the calculator backup.
+
 Current fixed-area cutting is limited to convex straight lots. Resection and alignment
 inversion are numerical solvers. Projection is limited to latitude -80..84 degrees and
 within 3.5 degrees of its central meridian; convergence/arc-to-chord are approximate.
@@ -192,6 +218,8 @@ Do not claim full Quickclose parity or a uniform accuracy guarantee from the hos
   preserving initialization order. Keep native angle enums in host tests accurate.
 - Avoid built-in symbol names for parameters and loop indices; current code uses
   `ee`, `ii`, `idx` and `obs`. Use `SC_ITEM` for portable multi-level list access.
+- Rebuild the native app folder and manifest after launcher or icon changes; check
+  the app from the Apps library, not only the diagnostic program entry in Home.
 
 ## References
 
