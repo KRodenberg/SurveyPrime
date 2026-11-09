@@ -1,0 +1,187 @@
+// SurveyPrime 0.1 -- original implementation. Angles internally in degrees.
+// Pure calculations are separate from keypad interaction.
+
+SC_WRAP(a)
+BEGIN
+  RETURN a-360*FLOOR(a/360);
+END;
+
+SC_DMSOK(a)
+BEGIN
+  LOCAL x,d,m,s;
+  x:=ABS(a); d:=FLOOR(x);
+  m:=FLOOR((x-d)*100+0.00000001);
+  s:=ROUND(((x-d)*100-m)*100,6);
+  RETURN (m<60) AND (s<60) AND (s>=0);
+END;
+
+SC_DEC(a)
+BEGIN
+  LOCAL x,d,m,s,sg:=1;
+  IF a<0 THEN sg:=-1; END;
+  x:=ABS(a); d:=FLOOR(x);
+  m:=FLOOR((x-d)*100+0.00000001);
+  s:=ROUND(((x-d)*100-m)*100,6);
+  RETURN sg*(d+m/60+s/3600);
+END;
+
+SC_PACK(a)
+BEGIN
+  LOCAL t,d,m,s,sg:=1;
+  IF a<0 THEN sg:=-1; END;
+  t:=ROUND(ABS(a)*3600,3);
+  d:=FLOOR(t/3600); t:=t-3600*d;
+  m:=FLOOR(t/60); s:=t-60*m;
+  RETURN sg*(d+m/100+s/10000);
+END;
+
+SC_AZ(e,n)
+BEGIN
+  LOCAL a;
+  IF ABS(e)+ABS(n)<1E-12 THEN RETURN 0; END;
+  IF ABS(n)<1E-12 THEN
+    IF e>0 THEN RETURN 90; ELSE RETURN 270; END;
+  END;
+  a:=ATAN(e/n);
+  IF n<0 THEN a:=a+180; END;
+  RETURN SC_WRAP(a);
+END;
+
+SC_JOIN(e1,n1,e2,n2)
+BEGIN
+  LOCAL e:=e2-e1,n:=n2-n1;
+  RETURN {SC_AZ(e,n),SQRT(e*e+n*n)};
+END;
+
+SC_RAD(e,n,b,d)
+BEGIN
+  RETURN {e+d*SIN(b),n+d*COS(b)};
+END;
+
+// Legs: {azimuth degrees, chord/straight distance, signed segment area}.
+// Positive segment adds to absolute polygon area; negative subtracts.
+SC_CLOSE(legs)
+BEGIN
+  LOCAL e:=0,n:=0,x,y,p:=0,a:=0,seg:=0,i,b,d,mis,ratio:=0;
+  FOR i FROM 1 TO SIZE(legs) DO
+    b:=legs(i)(1); d:=legs(i)(2);
+    x:=e+d*SIN(b); y:=n+d*COS(b);
+    a:=a+e*y-x*n; seg:=seg+legs(i)(3);
+    e:=x; n:=y; p:=p+d;
+  END;
+  mis:=SQRT(e*e+n*n);
+  IF mis>1E-9 THEN ratio:=p/mis; END;
+  // Error vector is endpoint minus target; closing vector is its negative.
+  RETURN {e,n,mis,SC_AZ(-e,-n),p,ABS(a)/2+seg,ratio};
+END;
+
+SC_COORDS(legs,e0,n0)
+BEGIN
+  LOCAL out:={{e0,n0}},i,p:={e0,n0};
+  FOR i FROM 1 TO SIZE(legs) DO
+    p:=SC_RAD(p(1),p(2),legs(i)(1),legs(i)(2));
+    out:=CONCAT(out,{p});
+  END;
+  RETURN out;
+END;
+
+// Bowditch to an arbitrary target displacement. Original observations retained.
+SC_BOW(legs,te,tn)
+BEGIN
+  LOCAL r:=SC_CLOSE(legs),out:={},i,e,n,d,b,w;
+  FOR i FROM 1 TO SIZE(legs) DO
+    b:=legs(i)(1); d:=legs(i)(2); w:=d/r(5);
+    e:=d*SIN(b)+(te-r(1))*w;
+    n:=d*COS(b)+(tn-r(2))*w;
+    out:=CONCAT(out,{{SC_AZ(e,n),SQRT(e*e+n*n),legs(i)(3)}});
+  END;
+  RETURN out;
+END;
+
+SC_SEG(r,ch)
+BEGIN
+  LOCAL t:=2*ASIN(ch/(2*r));
+  RETURN r*r*(t*ACOS(-1)/180-SIN(t))/2;
+END;
+
+SC_INSERT(legs,pos,leg)
+BEGIN
+  LOCAL out:={},i;
+  FOR i FROM 1 TO SIZE(legs)+1 DO
+    IF i==pos THEN out:=CONCAT(out,{leg}); END;
+    IF i<=SIZE(legs) THEN out:=CONCAT(out,{legs(i)}); END;
+  END;
+  RETURN out;
+END;
+
+SC_DELETE(legs,pos)
+BEGIN
+  LOCAL out:={},i;
+  FOR i FROM 1 TO SIZE(legs) DO
+    IF i<>pos THEN out:=CONCAT(out,{legs(i)}); END;
+  END;
+  RETURN out;
+END;
+
+SC_REVERSE(legs)
+BEGIN
+  LOCAL out:={},i;
+  FOR i FROM SIZE(legs) DOWNTO 1 DO
+    out:=CONCAT(out,{{SC_WRAP(legs(i)(1)+180),legs(i)(2),legs(i)(3)}});
+  END;
+  RETURN out;
+END;
+
+// Two unknown positive distances at known azimuths. Empty result if singular.
+SC_2DIST(e,n,b1,b2)
+BEGIN
+  LOCAL det:=SIN(b1-b2),d1,d2;
+  IF ABS(det)<1E-10 THEN RETURN {}; END;
+  d1:=(e*COS(b2)-n*SIN(b2))/det;
+  d2:=(n*SIN(b1)-e*COS(b1))/det;
+  IF (d1<=0) OR (d2<=0) THEN RETURN {}; END;
+  RETURN {d1,d2};
+END;
+
+// Two unknown azimuths at known distances: both mirror solutions returned.
+SC_2BEAR(e,n,d1,d2)
+BEGIN
+  LOCAL r:=SQRT(e*e+n*n),b,c,t,p;
+  IF (r<1E-10) OR (d1<=0) OR (d2<=0) THEN RETURN {}; END;
+  c:=(r*r+d1*d1-d2*d2)/(2*r*d1);
+  IF ABS(c)>1+1E-10 THEN RETURN {}; END;
+  c:=MAX(-1,MIN(1,c)); b:=SC_AZ(e,n); t:=ACOS(c);
+  p:=SC_RAD(0,0,b+t,d1);
+  RETURN {SC_WRAP(b+t),SC_AZ(e-p(1),n-p(2)),
+          SC_WRAP(b-t),SC_WRAP(2*b-SC_AZ(e-p(1),n-p(2)))};
+END;
+
+// Unknown azimuth on length d and unknown length on azimuth b.
+SC_MIXED(e,n,d,b)
+BEGIN
+  LOCAL along:=e*SIN(b)+n*COS(b),cross:=e*COS(b)-n*SIN(b),q,out:={},x,p;
+  q:=d*d-cross*cross;
+  IF q<0 THEN RETURN {}; END;
+  q:=SQRT(q);
+  x:=along+q;
+  IF x>0 THEN
+    p:=SC_RAD(0,0,b,x); out:=CONCAT(out,{{SC_AZ(e-p(1),n-p(2)),x}});
+  END;
+  x:=along-q;
+  IF (x>0) AND (q>1E-10) THEN
+    p:=SC_RAD(0,0,b,x); out:=CONCAT(out,{{SC_AZ(e-p(1),n-p(2)),x}});
+  END;
+  RETURN out;
+END;
+
+SC_DFACT(u)
+BEGIN
+  LOCAL f:={1,0.3048,1200/3937,0.201168,20.1168,1000,0.0254};
+  RETURN f(u);
+END;
+
+SC_AFACT(u)
+BEGIN
+  LOCAL f:={1,10000,0.09290304,(1200/3937)^2,4046.8564224,1000000};
+  RETURN f(u);
+END;

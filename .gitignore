@@ -1,0 +1,7 @@
+/Quickclose/
+/work/
+__pycache__/
+*.pyc
+/.venv/
+/Final Output/*.zip
+
