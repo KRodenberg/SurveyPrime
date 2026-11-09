@@ -1,0 +1,235 @@
+// Planar COGO: all coordinates metres, all azimuths decimal degrees.
+SC_BB(e1,n1,b1,e2,n2,b2)
+BEGIN
+  LOCAL d:=SIN(b1-b2),t,u;
+  IF ABS(d)<1E-10 THEN RETURN {}; END;
+  t:=((e2-e1)*COS(b2)-(n2-n1)*SIN(b2))/d;
+  u:=((e2-e1)*COS(b1)-(n2-n1)*SIN(b1))/d;
+  RETURN {e1+t*SIN(b1),n1+t*COS(b1),t,u};
+END;
+
+SC_DD(e1,n1,r1,e2,n2,r2)
+BEGIN
+  LOCAL j:=SC_JOIN(e1,n1,e2,n2),d:=j(2),a,h,p;
+  IF (d<1E-10) OR (r1<=0) OR (r2<=0) THEN RETURN {}; END;
+  IF (d>r1+r2+1E-9) OR (d<ABS(r1-r2)-1E-9) THEN RETURN {}; END;
+  a:=(r1*r1-r2*r2+d*d)/(2*d); h:=SQRT(MAX(0,r1*r1-a*a));
+  p:=SC_RAD(e1,n1,j(1),a);
+  RETURN {{p(1)+h*COS(j(1)),p(2)-h*SIN(j(1))},
+          {p(1)-h*COS(j(1)),p(2)+h*SIN(j(1))}};
+END;
+
+SC_BD(e1,n1,b,e2,n2,r)
+BEGIN
+  LOCAL de:=e2-e1,dn:=n2-n1,t,q,out:={};
+  t:=de*SIN(b)+dn*COS(b); q:=r*r-(de*COS(b)-dn*SIN(b))^2;
+  IF (r<=0) OR (q<0) THEN RETURN {}; END;
+  q:=SQRT(q);
+  IF t+q>=0 THEN out:=CONCAT(out,{SC_RAD(e1,n1,b,t+q)}); END;
+  IF (t-q>=0) AND (q>1E-9) THEN out:=CONCAT(out,{SC_RAD(e1,n1,b,t-q)}); END;
+  RETURN out;
+END;
+
+SC_OFFSET(e1,n1,b,e,n)
+BEGIN
+  LOCAL de:=e-e1,dn:=n-n1;
+  RETURN {de*SIN(b)+dn*COS(b),de*COS(b)-dn*SIN(b)};
+END;
+
+SC_CHAIN(e,n,b,ch,off)
+BEGIN
+  RETURN {e+ch*SIN(b)+off*COS(b),n+ch*COS(b)-off*SIN(b)};
+END;
+
+SC_CURVE(r,delta)
+BEGIN
+  RETURN {r*delta*3.141592653589793/180,2*r*SIN(delta/2),
+          r*TAN(delta/2),r*(1-COS(delta/2)),r*(1/COS(delta/2)-1),SC_SEG(r,2*r*SIN(delta/2))};
+END;
+
+SC_HEIGHT(s,z,hi,ht,k)
+BEGIN
+  LOCAL hd:=s*SIN(z),dh:=s*COS(z)+hi-ht;
+  RETURN {hd,dh+(1-k)*hd*hd/(2*6371000)};
+END;
+
+SC_FACES(h1,z1,s1,h2,z2,s2)
+BEGIN
+  LOCAL dh:=SC_WRAP(h2-h1)-180;
+  RETURN {SC_WRAP(h1+dh/2),(z1+360-z2)/2,(s1+s2)/2,dh,(z1+z2-360)/2};
+END;
+
+SC_POLYAREA(pts)
+BEGIN
+  LOCAL a:=0,i,j,e0,n0;
+  IF SIZE(pts)<3 THEN RETURN 0; END;
+  e0:=pts(1)(1); n0:=pts(1)(2);
+  FOR i FROM 1 TO SIZE(pts) DO
+    j:=1+(i MOD SIZE(pts));
+    a:=a+(pts(i)(1)-e0)*(pts(j)(2)-n0)-(pts(j)(1)-e0)*(pts(i)(2)-n0);
+  END;
+  RETURN ABS(a)/2;
+END;
+
+// Clip a simple polygon by an infinite line; retain left coordinate <= cut.
+SC_CLIP(pts,b,cut)
+BEGIN
+  LOCAL out:={},i,j,p,q,u,v,t;
+  FOR i FROM 1 TO SIZE(pts) DO
+    j:=1+(i MOD SIZE(pts)); p:=pts(i); q:=pts(j);
+    u:=p(1)*COS(b)-p(2)*SIN(b); v:=q(1)*COS(b)-q(2)*SIN(b);
+    IF u<=cut THEN out:=CONCAT(out,{p}); END;
+    IF ((u<=cut) AND (v>cut)) OR ((u>cut) AND (v<=cut)) THEN
+      t:=(cut-u)/(v-u); out:=CONCAT(out,{{p(1)+t*(q(1)-p(1)),p(2)+t*(q(2)-p(2))}});
+    END;
+  END;
+  RETURN out;
+END;
+
+SC_CUT(pts,b,target)
+BEGIN
+  LOCAL lo:=1E99,hi:=-1E99,i,u,mid,clipped;
+  FOR i FROM 1 TO SIZE(pts) DO
+    u:=pts(i)(1)*COS(b)-pts(i)(2)*SIN(b); lo:=MIN(lo,u); hi:=MAX(hi,u);
+  END;
+  FOR i FROM 1 TO 60 DO
+    mid:=(lo+hi)/2; clipped:=SC_CLIP(pts,b,mid);
+    IF SC_POLYAREA(clipped)<target THEN lo:=mid; ELSE hi:=mid; END;
+  END;
+  RETURN {mid,SC_POLYAREA(clipped)};
+END;
+
+// Three-point resection from clockwise direction differences B-A and C-A.
+// Multistart Newton iteration rejects singular geometry and multiple solutions.
+SC_RESECT(pts,ab,ac)
+BEGIN
+  LOCAL ce:=0,cn:=0,size:=0,start,iter,i,e,n,de,dn,rr,b,gE,gN,
+    dirs,ges,gns,f1,f2,j11,j12,j21,j22,det,dx,dy,solutions:={},p,good;
+  FOR i FROM 1 TO 3 DO ce:=ce+pts(i)(1)/3; cn:=cn+pts(i)(2)/3; END;
+  FOR i FROM 1 TO 3 DO size:=MAX(size,SQRT((pts(i)(1)-ce)^2+(pts(i)(2)-cn)^2)); END;
+  IF size<1E-6 THEN RETURN {}; END;
+  FOR start FROM 1 TO 12 DO
+    e:=ce+1.37*size*SIN(start*30+7); n:=cn+1.37*size*COS(start*30+7); good:=0;
+    FOR iter FROM 1 TO 70 DO
+      dirs:={}; ges:={}; gns:={};
+      FOR i FROM 1 TO 3 DO
+        de:=pts(i)(1)-e; dn:=pts(i)(2)-n; rr:=MAX(1E-12,de*de+dn*dn);
+        dirs:=CONCAT(dirs,{SC_AZ(de,dn)});
+        ges:=CONCAT(ges,{-dn/rr*180/3.141592653589793});
+        gns:=CONCAT(gns,{de/rr*180/3.141592653589793});
+      END;
+      f1:=SC_WRAP(dirs(2)-dirs(1)-ab+180)-180;
+      f2:=SC_WRAP(dirs(3)-dirs(1)-ac+180)-180;
+      j11:=ges(2)-ges(1); j12:=gns(2)-gns(1);
+      j21:=ges(3)-ges(1); j22:=gns(3)-gns(1); det:=j11*j22-j12*j21;
+      IF ABS(det)>1E-14 THEN
+        dx:=(-f1*j22+j12*f2)/det; dy:=(-j11*f2+f1*j21)/det;
+        rr:=SQRT(dx*dx+dy*dy);
+        IF rr>size THEN dx:=dx*size/rr; dy:=dy*size/rr; END;
+        e:=e+dx; n:=n+dy;
+        good:=(ABS(f1)+ABS(f2)<1E-8);
+      END;
+    END;
+    IF good AND (ABS(det)>1E-12) THEN
+      p:=SC_JOIN(e,n,pts(1)(1),pts(1)(2));
+      IF SIZE(solutions)==0 THEN solutions:={e,n,p(1)};
+      ELSE
+        IF ABS(e-solutions(1))+ABS(n-solutions(2))>0.001 THEN RETURN {}; END;
+      END;
+    END;
+  END;
+  RETURN solutions;
+END;
+
+// Level observations {backsight,foresight,distance}; proportional correction.
+SC_LEVEL(rows,start,finish,bydist)
+BEGIN
+  LOCAL i,total:=0,error,rl:=start,raw:={},out:={},cum:=0,w;
+  FOR i FROM 1 TO SIZE(rows) DO
+    rl:=rl+rows(i)(1)-rows(i)(2); raw:=CONCAT(raw,{rl});
+    IF bydist THEN total:=total+rows(i)(3); ELSE total:=total+1; END;
+  END;
+  error:=rl-finish;
+  FOR i FROM 1 TO SIZE(rows) DO
+    IF bydist THEN cum:=cum+rows(i)(3); ELSE cum:=cum+1; END;
+    w:=cum/total; out:=CONCAT(out,{{raw(i),raw(i)-error*w}});
+  END;
+  RETURN {error,out};
+END;
+
+// Road segment {length, entry curvature, exit curvature}, right positive (1/m).
+// Simpson integration supports straight, circular and clothoid elements.
+SC_ROADSTEP(e,n,b,leg,s)
+BEGIN
+  LOCAL slices,i,t,w,theta,se:=0,sn:=0,h,k0:=leg(2),dk:=(leg(3)-leg(2))/leg(1);
+  theta:=ABS(k0*s+dk*s*s/2);
+  slices:=MAX(20,2*CEILING(theta*40)); h:=s/slices;
+  FOR i FROM 0 TO slices DO
+    t:=i*h; theta:=b+(k0*t+dk*t*t/2)*180/3.141592653589793;
+    w:=2; IF i MOD 2 THEN w:=4; END;
+    IF (i==0) OR (i==slices) THEN w:=1; END;
+    se:=se+w*SIN(theta); sn:=sn+w*COS(theta);
+  END;
+  RETURN {e+se*h/3,n+sn*h/3,SC_WRAP(b+(k0*s+dk*s*s/2)*180/3.141592653589793),k0+dk*s};
+END;
+
+SC_ROAD(legs,origin,chain,offset)
+BEGIN
+  LOCAL p:={origin(1),origin(2),origin(3),0},left:=chain-origin(4),i,s;
+  FOR i FROM 1 TO SIZE(legs) DO
+    IF left>=0 THEN
+      s:=MIN(left,legs(i)(1)); p:=SC_ROADSTEP(p(1),p(2),p(3),legs(i),s);
+      left:=left-legs(i)(1);
+    END;
+  END;
+  RETURN {p(1)+offset*COS(p(3)),p(2)-offset*SIN(p(3)),p(3),p(4)};
+END;
+
+SC_ECC(e1,n1,e2,n2,d,angle)
+BEGIN
+  LOCAL j:=SC_JOIN(e1,n1,e2,n2),h,r,c,pts,out:={},side,i,a,b,duplicate,k;
+  IF (d<=0) OR (j(2)<1E-9) OR (ABS(SIN(angle))<1E-9) THEN RETURN {}; END;
+  h:=j(2)/(2*TAN(angle)); r:=ABS(j(2)/(2*SIN(angle)));
+  FOR side FROM 1 TO 2 DO
+    c:={(e1+e2)/2+(3-2*side)*h*COS(j(1)),(n1+n2)/2-(3-2*side)*h*SIN(j(1))};
+    pts:=SC_DD(e1,n1,d,c(1),c(2),r);
+    FOR i FROM 1 TO SIZE(pts) DO
+      a:=SC_AZ(e1-pts(i)(1),n1-pts(i)(2)); b:=SC_AZ(e2-pts(i)(1),n2-pts(i)(2));
+      IF ABS(SC_WRAP(b-a-angle+180)-180)<1E-6 THEN
+        duplicate:=0;
+        FOR k FROM 1 TO SIZE(out) DO
+          IF ABS(out(k)(1)-pts(i)(1))+ABS(out(k)(2)-pts(i)(2))<1E-5 THEN duplicate:=1; END;
+        END;
+        IF duplicate==0 THEN out:=CONCAT(out,{pts(i)}); END;
+      END;
+    END;
+  END;
+  RETURN out;
+END;
+
+SC_ROADNEAR(legs,origin,e,n)
+BEGIN
+  LOCAL p:={origin(1),origin(2),origin(3),0},i,j,ch:=origin(4),q,d,best:=1E99,
+    bestch:=ch,bestp:=p,bests:=0,lo,hi,m1,m2,q1,q2,d1,d2,s;
+  FOR i FROM 1 TO SIZE(legs) DO
+    d:=1E99;
+    FOR j FROM 0 TO 40 DO
+      s:=legs(i)(1)*j/40; q:=SC_ROADSTEP(p(1),p(2),p(3),legs(i),s);
+      d1:=(e-q(1))^2+(n-q(2))^2;
+      IF d1<d THEN d:=d1; bests:=s; END;
+    END;
+    lo:=MAX(0,bests-legs(i)(1)/40); hi:=MIN(legs(i)(1),bests+legs(i)(1)/40);
+    FOR j FROM 1 TO 45 DO
+      m1:=lo+(hi-lo)/3; m2:=hi-(hi-lo)/3;
+      q1:=SC_ROADSTEP(p(1),p(2),p(3),legs(i),m1); q2:=SC_ROADSTEP(p(1),p(2),p(3),legs(i),m2);
+      d1:=(e-q1(1))^2+(n-q1(2))^2; d2:=(e-q2(1))^2+(n-q2(2))^2;
+      IF d1<d2 THEN hi:=m2; ELSE lo:=m1; END;
+    END;
+    s:=(lo+hi)/2; q:=SC_ROADSTEP(p(1),p(2),p(3),legs(i),s);
+    d1:=(e-q(1))^2+(n-q(2))^2;
+    IF d1<best THEN best:=d1; bestch:=ch+s; bestp:=q; END;
+    ch:=ch+legs(i)(1); p:=SC_ROADSTEP(p(1),p(2),p(3),legs(i),legs(i)(1));
+  END;
+  q:=SC_OFFSET(bestp(1),bestp(2),bestp(3),e,n);
+  RETURN {bestch,q(2),SQRT(best),q(1)};
+END;

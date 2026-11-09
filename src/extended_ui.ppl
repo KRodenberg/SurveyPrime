@@ -1,0 +1,575 @@
+EXPORT SC_POINTS:={};
+EXPORT SC_POINTJOBS:={};
+EXPORT SC_ROWS:={};
+EXPORT SC_LROWS:={};
+EXPORT SC_LSTART:=0;
+EXPORT SC_LFINISH:=0;
+EXPORT SC_LSIGHTS:={};
+EXPORT SC_TURNS:={};
+EXPORT SC_TSTART:=0;
+EXPORT SC_ROADLEGS:={};
+EXPORT SC_ROADORIGIN:={0,0,0,0};
+EXPORT SC_BCORR:=0;
+EXPORT SC_DSCALE:=1;
+EXPORT SC_TBALANCED:={};
+
+SC_FORM(title,labels,values)
+BEGIN
+  LOCAL helps:={},i;
+  FOR i FROM 1 TO SIZE(labels) DO helps:=CONCAT(helps,{"Enter value; Esc cancels without saving."}); END;
+  RETURN SC_ASK(title,labels,helps,values);
+END;
+
+SC_FIND(id)
+BEGIN
+  LOCAL i;
+  FOR i FROM 1 TO SIZE(SC_POINTS) DO
+    IF SC_POINTS(i)(1)==id THEN RETURN i; END;
+  END;
+  RETURN 0;
+END;
+
+SC_POINT(title)
+BEGIN
+  LOCAL c,r,i;
+  c:=SC_MENU(title,{"Enter E / N / height","Use stored point ID"});
+  IF c==0 THEN RETURN {}; END;
+  IF c==1 THEN RETURN SC_FORM(title,{"Easting (m)","Northing (m)","Height (m)"},{0,0,0}); END;
+  r:=SC_NUM(title,"Point ID","Numeric ID in the point database",1);
+  IF r(1)==0 THEN RETURN {}; END;
+  i:=SC_FIND(r(2));
+  IF i==0 THEN SC_SHOW("Point not found",{"Add it using Point database."}); RETURN {}; END;
+  RETURN {SC_POINTS(i)(2),SC_POINTS(i)(3),SC_POINTS(i)(4)};
+END;
+
+SC_STORE(p)
+BEGIN
+  LOCAL r,i;
+  SC_SHOW("Computed coordinate",{"E "+SC_FMT(p(1)),"N "+SC_FMT(p(2)),"Height "+SC_FMT(p(3))});
+  IF SC_MENU("Store computed point?",{"Return without storing","Store in point database"})<>2 THEN RETURN 0; END;
+  r:=SC_NUM("Store point","Numeric point ID","Positive whole number",SIZE(SC_POINTS)+1);
+  IF r(1)==0 THEN RETURN 0; END;
+  IF (r(2)<1) OR (r(2)<>FLOOR(r(2))) THEN SC_SHOW("Invalid ID",{"Use a positive whole number."}); RETURN 0; END;
+  i:=SC_FIND(r(2));
+  IF i>0 THEN
+    IF SC_MENU("Replace existing point?",{"Keep old point","Replace coordinates"})<>2 THEN RETURN 0; END;
+    SC_POINTS(i):={r(2),p(1),p(2),p(3)};
+  ELSE SC_POINTS:=CONCAT(SC_POINTS,{{r(2),p(1),p(2),p(3)}}); END;
+END;
+
+SC_POINTMENU()
+BEGIN
+  LOCAL c,p,r,i,lines,job,j,valid;
+  REPEAT
+    c:=SC_MENU("POINTS | "+STRING(SIZE(SC_POINTS)),{"View points","Add / replace point","Delete point","Rotate / scale / translate","Save / open point job","Import SC_ROWS","Export CSV to SC_TEXT"});
+    IF c==0 THEN RETURN 0; END;
+    IF c==1 THEN
+      lines:={};
+      FOR i FROM 1 TO SIZE(SC_POINTS) DO
+        lines:=CONCAT(lines,{"ID "+STRING(SC_POINTS(i)(1))+"  H "+SC_FMT(SC_POINTS(i)(4)),
+          "E "+SC_FMT(SC_POINTS(i)(2))+"  N "+SC_FMT(SC_POINTS(i)(3))});
+      END;
+      SC_SHOW("Point database",CONCAT(lines,{"End of point list"}));
+    END;
+    IF c==2 THEN p:=SC_POINT("Coordinate to store"); IF SIZE(p)>0 THEN SC_STORE(p); END; END;
+    IF c==3 THEN
+      r:=SC_NUM("Delete point","Point ID","Deletion needs confirmation",1);
+      IF r(1) THEN
+        i:=SC_FIND(r(2));
+        IF i>0 THEN
+          IF SC_MENU("Delete point "+STRING(r(2))+"?",{"Keep point","Delete point"})==2 THEN SC_POINTS:=SC_DELETE(SC_POINTS,i); END;
+        END;
+      END;
+    END;
+    IF c==4 THEN
+      r:=SC_FORM("Transform all points",{"Pivot Easting","Pivot Northing","Rotation DD.MMSS","Scale","Shift Easting","Shift Northing","Height shift"},{0,0,0,1,0,0,0});
+      IF SIZE(r)>0 THEN
+        IF SC_DMSOK(r(3)) AND (r(4)>0) THEN
+          FOR i FROM 1 TO SIZE(SC_POINTS) DO
+            p:=SC_JOIN(r(1),r(2),SC_POINTS(i)(2),SC_POINTS(i)(3));
+            p:=SC_RAD(r(1)+r(5),r(2)+r(6),p(1)+SC_DEC(r(3)),p(2)*r(4));
+            SC_POINTS(i):={SC_POINTS(i)(1),p(1),p(2),SC_POINTS(i)(4)+r(7)};
+          END;
+        ELSE SC_SHOW("Invalid transform",{"Use valid DMS and positive scale."}); END;
+      END;
+    END;
+    IF c==5 THEN
+      j:=SC_MENU("Point jobs",{"Save snapshot as new job","Open job","Delete job"});
+      IF j==1 THEN SC_POINTJOBS:=CONCAT(SC_POINTJOBS,{SC_POINTS}); SC_SHOW("Saved",{"Point job "+STRING(SIZE(SC_POINTJOBS))}); END;
+      IF j>=2 THEN
+        r:=SC_NUM("Point jobs","Job number","Available: "+STRING(SIZE(SC_POINTJOBS)),1);
+        IF r(1) THEN
+          i:=r(2);
+          IF (i>=1) AND (i<=SIZE(SC_POINTJOBS)) AND (i==FLOOR(i)) THEN
+            IF SC_MENU("Confirm point job action",{"Cancel","Proceed"})==2 THEN
+              IF j==2 THEN SC_POINTS:=SC_POINTJOBS(i); ELSE SC_POINTJOBS:=SC_DELETE(SC_POINTJOBS,i); END;
+            END;
+          END;
+        END;
+      END;
+    END;
+    IF c==6 THEN
+      valid:=1;
+      IFERR
+        FOR i FROM 1 TO SIZE(SC_ROWS) DO
+          IF SIZE(SC_ROWS(i))<>4 THEN valid:=0; ELSE
+            IF (SC_ROWS(i)(1)<1) OR (SC_ROWS(i)(1)<>FLOOR(SC_ROWS(i)(1))) THEN valid:=0; END;
+            FOR j FROM 1 TO 4 DO IF TYPE(SC_ROWS(i)(j))<>0 THEN valid:=0; END; END;
+            FOR j FROM 1 TO i-1 DO IF SC_ROWS(j)(1)==SC_ROWS(i)(1) THEN valid:=0; END; END;
+          END;
+        END;
+      THEN valid:=0; END;
+      IF valid AND (SIZE(SC_ROWS)>0) THEN
+        IF SC_MENU("Replace point database?",{"Cancel","Import SC_ROWS"})==2 THEN SC_POINTS:=SC_ROWS; END;
+      ELSE SC_SHOW("No valid import rows",{"Set SC_ROWS to {{ID,E,N,H},...}.","IDs must be unique positive integers."}); END;
+    END;
+    IF c==7 THEN
+      SC_TEXT:="id,easting_m,northing_m,height_m";
+      FOR i FROM 1 TO SIZE(SC_POINTS) DO
+        p:=SC_POINTS(i); SC_TEXT:=SC_TEXT+CHAR(10)+STRING(p(1))+","+STRING(p(2))+","+STRING(p(3))+","+STRING(p(4));
+      END;
+      SC_SHOW("CSV export ready",{"Retrieve SC_TEXT using Connectivity Kit."});
+    END;
+  UNTIL 0;
+END;
+
+SC_COGO()
+BEGIN
+  LOCAL c,p,q,r,b,a,out,i,j,k,pts,id,lines,cur;
+  REPEAT
+    c:=SC_MENU("COORDINATE GEOMETRY",{"Point database / jobs","Radiation / traverse (2D or 3D)","Join / inverse (2D and 3D)","Line chainage / offset","Intersections","Three-point resection","Area from stored points","Two-point eccentric station","Radiation / join corrections"});
+    IF c==0 THEN RETURN 0; END;
+    IF c==1 THEN SC_POINTMENU(); END;
+    IF (c>=2) AND (c<=6) THEN
+      p:=SC_POINT("Reference point A"); IF SIZE(p)==0 THEN c:=-1; END;
+    END;
+    IF c==2 THEN
+      j:=SC_MENU("Radiation observation",{"Horizontal distance","Slope distance and zenith angle"});
+      IF j>0 THEN
+        b:=SC_BEAR("Radiation bearing",0);
+        IF SIZE(b)>0 THEN
+          IF j==1 THEN
+            r:=SC_FORM("Radiation",{"Horizontal distance (m)","Height difference (m)"},{1,0});
+            IF SIZE(r)>0 THEN
+              IF r(1)>0 THEN
+                IF (SC_BCORR<>0) OR (SC_DSCALE<>1) THEN SC_SHOW("Radiation corrections",{"Bearing correction: "+SC_ANGLE(SC_BCORR),"Distance scale: "+STRING(SC_DSCALE)}); END;
+                out:=SC_RAD(p(1),p(2),b(1)+SC_BCORR,r(1)*SC_DSCALE); SC_STORE({out(1),out(2),p(3)+r(2)});
+              END;
+            END;
+          ELSE
+            r:=SC_FORM("3D radiation",{"Slope distance (m)","Zenith angle DD.MMSS","Instrument height (m)","Target height (m)","Refraction k (1 disables correction)"},{1,90,0,0,0.13});
+            IF SIZE(r)>0 THEN
+              IF (r(1)>0) AND SC_DMSOK(r(2)) AND (r(2)>=0) AND (r(2)<=180) THEN
+                IF (SC_BCORR<>0) OR (SC_DSCALE<>1) THEN SC_SHOW("Radiation corrections",{"Bearing correction: "+SC_ANGLE(SC_BCORR),"Slope distance scale: "+STRING(SC_DSCALE)}); END;
+                a:=SC_HEIGHT(r(1)*SC_DSCALE,SC_DEC(r(2)),r(3),r(4),r(5));
+                out:=SC_RAD(p(1),p(2),b(1)+SC_BCORR,a(1)); SC_STORE({out(1),out(2),p(3)+a(2)});
+              ELSE SC_SHOW("Invalid 3D observation",{"Check positive distance and zenith angle."}); END;
+            END;
+          END;
+        END;
+      END;
+    END;
+    IF (c>=3) AND (c<=5) THEN q:=SC_POINT("Reference point B"); IF SIZE(q)==0 THEN c:=-1; END; END;
+    IF c==3 THEN
+      r:=SC_JOIN(p(1),p(2),q(1),q(2)); a:=q(3)-p(3);
+      SC_SHOW("Join A to B",{"Azimuth: "+SC_ANGLE(r(1)),"Horizontal: "+SC_FMT(r(2))+" m",
+        "Height diff: "+SC_FMT(a)+" m","Slope: "+SC_FMT(SQRT(r(2)^2+a^2))+" m",
+        "Zenith: "+SC_ANGLE(SC_AZ(r(2),a))});
+      IF (SC_BCORR<>0) OR (SC_DSCALE<>1) THEN
+        SC_SHOW("Join with inverse corrections",{"Observation bearing: "+SC_ANGLE(SC_WRAP(r(1)-SC_BCORR)),"Observation distance: "+SC_FMT(r(2)/SC_DSCALE),"Raw grid results shown on previous page."});
+      END;
+    END;
+    IF c==4 THEN
+      r:=SC_JOIN(p(1),p(2),q(1),q(2));
+      IF r(2)>1E-9 THEN
+        j:=SC_MENU("Reference line A to B",{"Coordinate from chainage / offset","Chainage / offset of a point"});
+        IF j==1 THEN
+          a:=SC_FORM("Line offset",{"Distance along from A (m)","Offset right positive (m)"},{0,0});
+          IF SIZE(a)>0 THEN out:=SC_CHAIN(p(1),p(2),r(1),a(1),a(2)); SC_STORE({out(1),out(2),p(3)}); END;
+        END;
+        IF j==2 THEN
+          a:=SC_POINT("Point to project");
+          IF SIZE(a)>0 THEN out:=SC_OFFSET(p(1),p(2),r(1),a(1),a(2)); SC_SHOW("Line projection",{"Along from A: "+SC_FMT(out(1))+" m","Right offset: "+SC_FMT(out(2))+" m"}); END;
+        END;
+      ELSE SC_SHOW("Invalid reference line",{"A and B must be different points."}); END;
+    END;
+    IF c==5 THEN
+      j:=SC_MENU("Intersection type",{"Bearing / bearing","Distance / distance","Bearing from A / distance from B"}); out:={};
+      IF j==1 THEN
+        a:=SC_BEAR("Bearing from A",0); b:=SC_BEAR("Bearing from B",90);
+        IF (SIZE(a)>0) AND (SIZE(b)>0) THEN
+          r:=SC_BB(p(1),p(2),a(1),q(1),q(2),b(1));
+          IF SIZE(r)>0 THEN
+            SC_SHOW("Line intersection",{"Distance on ray A: "+SC_FMT(r(3)),"Distance on ray B: "+SC_FMT(r(4)),"Negative distance is a backward extension."}); out:={{r(1),r(2)}};
+          END;
+        END;
+      END;
+      IF j==2 THEN
+        a:=SC_FORM("Circle intersection",{"Distance from A (m)","Distance from B (m)"},{1,1});
+        IF SIZE(a)>0 THEN out:=SC_DD(p(1),p(2),a(1),q(1),q(2),a(2)); END;
+      END;
+      IF j==3 THEN
+        a:=SC_BEAR("Bearing from A",0); b:=SC_NUM("Circle radius","Distance from B (m)","Positive distance",1);
+        IF (SIZE(a)>0) AND b(1) THEN out:=SC_BD(p(1),p(2),a(1),q(1),q(2),b(2)); END;
+      END;
+      IF j>0 THEN
+        IF SIZE(out)==0 THEN SC_SHOW("No intersection",{"Parallel, coincident, or impossible geometry."});
+        ELSE FOR i FROM 1 TO SIZE(out) DO SC_SHOW("Solution "+STRING(i),{"Both solutions may be valid."}); SC_STORE({out(i)(1),out(i)(2),p(3)}); END; END;
+      END;
+    END;
+    IF c==6 THEN
+      q:=SC_POINT("Reference point B"); r:=SC_POINT("Reference point C");
+      IF (SIZE(q)>0) AND (SIZE(r)>0) THEN
+        a:=SC_BEAR("Clockwise direction B minus A",90); b:=SC_BEAR("Clockwise direction C minus A",180);
+        IF (SIZE(a)>0) AND (SIZE(b)>0) THEN
+          out:=SC_RESECT({p,q,r},a(1),b(1));
+          IF SIZE(out)>0 THEN SC_SHOW("Resection orientation",{"Azimuth to A: "+SC_ANGLE(out(3))}); SC_STORE({out(1),out(2),0});
+          ELSE SC_SHOW("Resection not unique",{"Check directions and known points.","Danger-circle / ill-conditioned cases rejected."}); END;
+        END;
+      END;
+    END;
+    IF c==7 THEN
+      pts:={}; id:=1;
+      REPEAT
+        r:=SC_NUM("Polygon point order","Next point ID; 0 finishes","Enter boundary order, without repeating start",1);
+        IF r(1)==0 THEN id:=0; ELSE id:=r(2); END;
+        IF id>0 THEN
+          i:=SC_FIND(id);
+          IF i>0 THEN pts:=CONCAT(pts,{{SC_POINTS(i)(2),SC_POINTS(i)(3)}}); ELSE SC_SHOW("Unknown point ID",{"Choose a stored point."}); END;
+        END;
+      UNTIL id==0;
+      IF SIZE(pts)>=3 THEN
+        SC_SHOW("Polygon area",{SC_FMT(SC_POLYAREA(pts))+" m2","Assumes a simple polygon in boundary order."});
+        IF SC_MENU("Use polygon as lot?",{"Keep working lot","Copy closed straight lot"})==2 THEN
+          out:={};
+          FOR i FROM 1 TO SIZE(pts) DO
+            j:=1+(i MOD SIZE(pts)); r:=SC_JOIN(pts(i)(1),pts(i)(2),pts(j)(1),pts(j)(2));
+            IF r(2)>1E-9 THEN out:=CONCAT(out,{{r(1),r(2),0}}); END;
+          END;
+          SC_LEGS:=out; SC_ORIGIN:=pts(1); SC_ADJUSTED:={};
+        END;
+      END;
+    END;
+    IF c==8 THEN
+      p:=SC_POINT("Main station"); q:=SC_POINT("Reference object");
+      IF (SIZE(p)>0) AND (SIZE(q)>0) THEN
+        a:=SC_BEAR("Direction to main station",0); b:=SC_BEAR("Direction to reference object",90);
+        r:=SC_NUM("Eccentric station","Horizontal distance to main (m)","Both possible solutions will be shown.",1);
+        IF (SIZE(a)>0) AND (SIZE(b)>0) AND r(1) THEN
+          out:=SC_ECC(p(1),p(2),q(1),q(2),r(2),SC_WRAP(b(1)-a(1)));
+          IF SIZE(out)==0 THEN SC_SHOW("No eccentric solution",{"Geometry is singular or impossible."}); END;
+          FOR i FROM 1 TO SIZE(out) DO SC_SHOW("Eccentric solution "+STRING(i),{"Confirm which side of the line is correct."}); SC_STORE({out(i)(1),out(i)(2),p(3)}); END;
+        END;
+      END;
+    END;
+    IF c==9 THEN
+      r:=SC_FORM("Radiation / join corrections",{"Add bearing correction DD.MMSS","Multiply distance by scale"},{SC_PACK(SC_BCORR),SC_DSCALE});
+      IF SIZE(r)>0 THEN
+        IF SC_DMSOK(r(1)) AND (r(2)>0) THEN SC_BCORR:=SC_DEC(r(1)); SC_DSCALE:=r(2);
+        ELSE SC_SHOW("Invalid correction",{"Check DMS and positive distance scale."}); END;
+      END;
+    END;
+  UNTIL 0;
+END;
+
+SC_UTILS()
+BEGIN
+  LOCAL c,r,a,b,p,q,out,pts,i,total,which;
+  REPEAT
+    c:=SC_MENU("SURVEY UTILITIES",{"Circular curve components","Trig height / slope reduction","Bearing / distance components","Fixed-area cut from lot","Corner truncation chord","Missing tie measurement","Intersection secant","Reduce two-face observations"});
+    IF c==0 THEN RETURN 0; END;
+    IF c==1 THEN
+      which:=SC_MENU("Circular curve known data",{"Radius and deflection angle","Radius and chord","Radius and arc length"});
+      IF which>0 THEN
+        r:=SC_FORM("Circular curve",{"Radius (m)","Deflection DD.MMSS / chord m / arc m"},{100,30});
+        IF SIZE(r)>0 THEN
+          a:=-1;
+          IF (r(1)>0) AND (r(2)>0) THEN
+            IF which==1 THEN IF SC_DMSOK(r(2)) THEN a:=SC_DEC(r(2)); END; END;
+            IF which==2 THEN IF r(2)<2*r(1) THEN a:=2*ASIN(r(2)/(2*r(1))); END; END;
+            IF which==3 THEN a:=r(2)/r(1)*180/3.141592653589793; END;
+          END;
+          IF (a>0) AND (a<180) THEN
+            out:=SC_CURVE(r(1),a);
+            SC_SHOW("Minor circular curve",{"Deflection: "+SC_ANGLE(a),"Arc: "+SC_FMT(out(1)),"Chord: "+SC_FMT(out(2)),"Tangent: "+SC_FMT(out(3)),
+              "Mid-ordinate: "+SC_FMT(out(4)),"External: "+SC_FMT(out(5)),"Segment area: "+SC_FMT(out(6))+" m2"});
+          ELSE SC_SHOW("Invalid minor curve",{"Require radius > 0 and 0 < deflection < 180."}); END;
+        END;
+      END;
+    END;
+    IF c==2 THEN
+      r:=SC_FORM("Trigonometric height",{"Station RL (m)","Slope distance (m)","Zenith angle DD.MMSS","Instrument height (m)","Target height (m)","Refraction k (1 disables correction)"},{0,1,90,0,0,0.13});
+      IF SIZE(r)>0 THEN
+        IF (r(2)>0) AND SC_DMSOK(r(3)) AND (r(3)>=0) AND (r(3)<=180) THEN
+          out:=SC_HEIGHT(r(2),SC_DEC(r(3)),r(4),r(5),r(6));
+          SC_SHOW("Trig height result",{"Horizontal: "+SC_FMT(out(1))+" m","Target RL: "+SC_FMT(r(1)+out(2))+" m","Includes specified curvature/refraction."});
+        ELSE SC_SHOW("Invalid observation",{"Check distance and zenith angle."}); END;
+      END;
+    END;
+    IF c==3 THEN
+      a:=SC_BEAR("Observed bearing",0); b:=SC_BEAR("Reference bearing",0);
+      r:=SC_NUM("Line components","Distance (m)","Signed distance allowed",1);
+      IF (SIZE(a)>0) AND (SIZE(b)>0) AND r(1) THEN
+        p:=SC_RAD(0,0,a(1),r(2)); out:=SC_OFFSET(0,0,b(1),p(1),p(2));
+        SC_SHOW("Reference components",{"Along: "+SC_FMT(out(1)),"Right: "+SC_FMT(out(2)),"East: "+SC_FMT(p(1)),"North: "+SC_FMT(p(2))});
+      END;
+    END;
+    IF c==4 THEN
+      IF SIZE(SC_LEGS)<3 THEN SC_SHOW("Fixed area cut",{"Enter a lot with at least three legs."});
+      ELSE
+        pts:=SC_COORDS(SC_LEGS,0,0); total:=SC_POLYAREA(pts);
+        a:=SC_BEAR("Direction of cut line",0);
+        r:=SC_NUM("Fixed area cut","Retained area (m2)","Straight boundaries only. Left side retained.",total/2);
+        IF (SIZE(a)>0) AND r(1) THEN
+          which:=0;
+          FOR i FROM 1 TO SIZE(SC_LEGS) DO IF SC_LEGS(i)(3)<>0 THEN which:=1; END; END;
+          IF (r(2)>0) AND (r(2)<total) AND (which==0) THEN
+            out:=SC_CUT(pts,a(1),r(2));
+            SC_SHOW("Cut line",{"Direction: "+SC_ANGLE(a(1)),"Right offset from lot origin:",SC_FMT(out(1))+" m","Retained area: "+SC_FMT(out(2))+" m2",
+              "Keep side with right coordinate <= offset.","Convex straight-boundary lots only."});
+          ELSE SC_SHOW("Invalid cut",{"Use a convex straight-boundary lot.","Target must be between zero and lot area."}); END;
+        END;
+      END;
+    END;
+    IF c==5 THEN
+      r:=SC_FORM("Corner truncation",{"Setback along first ray (m)","Setback along second ray (m)","Included angle DD.MMSS"},{10,10,90});
+      IF SIZE(r)>0 THEN
+        IF (r(1)>0) AND (r(2)>0) AND SC_DMSOK(r(3)) AND (r(3)>0) AND (r(3)<180) THEN
+          out:=SQRT(r(1)^2+r(2)^2-2*r(1)*r(2)*COS(SC_DEC(r(3))));
+          SC_SHOW("Truncation chord",{SC_FMT(out)+" m"});
+        ELSE SC_SHOW("Invalid corner",{"Check positive setbacks and angle 0..180."}); END;
+      END;
+    END;
+    IF c==6 THEN
+      a:=SC_BEAR("First observed bearing",0); b:=SC_BEAR("Second observed bearing",90);
+      r:=SC_FORM("Tie measurement",{"First slope distance (m)","First zenith DD.MMSS","Second slope distance (m)","Second zenith DD.MMSS"},{10,90,10,90});
+      IF (SIZE(a)>0) AND (SIZE(b)>0) AND (SIZE(r)>0) THEN
+        IF SC_DMSOK(r(2)) AND SC_DMSOK(r(4)) AND (r(1)>0) AND (r(3)>0) AND (r(2)>=0) AND (r(2)<=180) AND (r(4)>=0) AND (r(4)<=180) THEN
+          p:=SC_RAD(0,0,a(1),r(1)*SIN(SC_DEC(r(2)))); q:=SC_RAD(0,0,b(1),r(3)*SIN(SC_DEC(r(4))));
+          out:=SC_JOIN(p(1),p(2),q(1),q(2)); total:=r(3)*COS(SC_DEC(r(4)))-r(1)*COS(SC_DEC(r(2)));
+          SC_SHOW("Missing tie",{"Bearing: "+SC_ANGLE(out(1)),"Horizontal: "+SC_FMT(out(2))+" m","Height difference: "+SC_FMT(total)+" m","Slope: "+SC_FMT(SQRT(out(2)^2+total^2))+" m"});
+        ELSE SC_SHOW("Invalid observations",{"Check lengths and zenith angles."}); END;
+      END;
+    END;
+    IF c==7 THEN
+      r:=SC_FORM("Road intersection secant",{"Half-width road 1 (m)","Half-width road 2 (m)","Intersection angle DD.MMSS"},{5,5,90});
+      IF SIZE(r)>0 THEN
+        IF SC_DMSOK(r(3)) AND (r(3)>0) AND (r(3)<180) AND (r(1)>0) AND (r(2)>0) THEN
+          a:=SC_DEC(r(3));
+          SC_SHOW("Intersection edge offsets",{"On road 1: "+SC_FMT((r(2)+r(1)*COS(a))/SIN(a)),
+            "On road 2: "+SC_FMT((r(1)+r(2)*COS(a))/SIN(a)),"Measured along centrelines from intersection."});
+        ELSE SC_SHOW("Invalid intersection",{"Use positive widths and angle 0..180."}); END;
+      END;
+    END;
+    IF c==8 THEN
+      r:=SC_FORM("Two-face reduction",{"Face I horizontal DD.MMSS","Face I zenith DD.MMSS","Face I slope distance (m)","Face II horizontal DD.MMSS","Face II zenith DD.MMSS","Face II slope distance (m)"},{0,90,1,180,270,1});
+      IF SIZE(r)>0 THEN
+        IF SC_DMSOK(r(1)) AND SC_DMSOK(r(2)) AND SC_DMSOK(r(4)) AND SC_DMSOK(r(5)) AND
+          (r(1)>=0) AND (r(1)<360) AND (r(4)>=0) AND (r(4)<360) AND
+          (r(2)>=0) AND (r(2)<=180) AND (r(5)>=180) AND (r(5)<=360) AND (r(3)>0) AND (r(6)>0) THEN
+          out:=SC_FACES(SC_DEC(r(1)),SC_DEC(r(2)),r(3),SC_DEC(r(4)),SC_DEC(r(5)),r(6));
+          SC_SHOW("Reduced face I observation",{"Horizontal: "+SC_ANGLE(out(1)),"Zenith: "+SC_ANGLE(out(2)),"Slope: "+SC_FMT(out(3))+" m",
+            "Horizontal face disagreement:",SC_ANGLE(out(4)),"Zenith index error: "+SC_ANGLE(out(5)),"Use reduced values in 3D radiation."});
+        ELSE SC_SHOW("Invalid face observations",{"Face I zenith 0..180; face II 180..360.","Use valid DMS and positive distances."}); END;
+      END;
+    END;
+  UNTIL 0;
+END;
+
+SC_LEVELUI()
+BEGIN
+  LOCAL c,r,out,lines,i,raw,j;
+  REPEAT
+    c:=SC_MENU("LEVELLING",{"Set start / known finish RL","Add backsight / foresight setup","View / adjust run","Edit / delete setup","Intermediate sight","View intermediate levels","New empty run"});
+    IF c==0 THEN RETURN 0; END;
+    IF c==1 THEN
+      r:=SC_FORM("Level control",{"Start RL (m)","Known finish RL (m)"},{SC_LSTART,SC_LFINISH});
+      IF SIZE(r)>0 THEN SC_LSTART:=r(1); SC_LFINISH:=r(2); END;
+    END;
+    IF c==2 THEN
+      r:=SC_FORM("Level setup",{"Backsight (m)","Foresight (m)","Setup distance (m)"},{1,1,1});
+      IF SIZE(r)>0 THEN
+        IF (r(1)>=0) AND (r(2)>=0) AND (r(3)>0) THEN SC_LROWS:=CONCAT(SC_LROWS,{r});
+        ELSE SC_SHOW("Invalid setup",{"Sight readings >= 0, distance > 0."}); END;
+      END;
+    END;
+    IF c==3 THEN
+      IF SIZE(SC_LROWS)>0 THEN
+        j:=SC_MENU("Distribute level misclose",{"By setup distance","Equally by setup"});
+        IF j>0 THEN
+          out:=SC_LEVEL(SC_LROWS,SC_LSTART,SC_LFINISH,j==1);
+          lines:={"Misclose: "+SC_FMT(out(1))+" m","Setup    raw RL / adjusted RL"};
+          FOR i FROM 1 TO SIZE(SC_LROWS) DO lines:=CONCAT(lines,{STRING(i)+"  "+SC_FMT(out(2)(i)(1))+" / "+SC_FMT(out(2)(i)(2))}); END;
+          SC_SHOW("Reduced levels",lines);
+        END;
+      ELSE SC_SHOW("Level run",{"No setups entered."}); END;
+    END;
+    IF c==4 THEN
+      r:=SC_NUM("Edit level setup","Setup number","Existing setup number",1);
+      IF r(1) THEN
+        i:=r(2);
+        IF (i>=1) AND (i<=SIZE(SC_LROWS)) AND (i==FLOOR(i)) THEN
+          j:=SC_MENU("Edit setup",{"Replace readings","Delete setup"});
+          IF j==1 THEN
+            r:=SC_FORM("Replace setup",{"Backsight","Foresight","Setup distance"},SC_LROWS(i));
+            IF SIZE(r)>0 THEN IF (r(1)>=0) AND (r(2)>=0) AND (r(3)>0) THEN SC_LROWS(i):=r; END; END;
+          END;
+          IF j==2 THEN
+            IF SIZE(SC_LSIGHTS)>0 THEN SC_SHOW("Intermediate sights exist",{"Clear the run before deleting setups.","This preserves sight/setup references."});
+            ELSE IF SC_MENU("Delete setup?",{"Keep","Delete"})==2 THEN SC_LROWS:=SC_DELETE(SC_LROWS,i); END; END;
+          END;
+        END;
+      END;
+    END;
+    IF c==5 THEN
+      r:=SC_FORM("Intermediate sight",{"Setup number","Intermediate staff reading (m)"},{1,1});
+      IF SIZE(r)>0 THEN
+        IF (r(1)>=1) AND (r(1)<=SIZE(SC_LROWS)) AND (r(1)==FLOOR(r(1))) AND (r(2)>=0) THEN SC_LSIGHTS:=CONCAT(SC_LSIGHTS,{r});
+        ELSE SC_SHOW("Invalid intermediate",{"Use an existing setup and reading >= 0."}); END;
+      END;
+    END;
+    IF c==6 THEN
+      lines:={"Raw levels; observations retained."};
+      FOR i FROM 1 TO SIZE(SC_LSIGHTS) DO
+        raw:=SC_LSTART;
+        FOR j FROM 1 TO SC_LSIGHTS(i)(1)-1 DO raw:=raw+SC_LROWS(j)(1)-SC_LROWS(j)(2); END;
+        raw:=raw+SC_LROWS(SC_LSIGHTS(i)(1))(1)-SC_LSIGHTS(i)(2);
+        lines:=CONCAT(lines,{"Sight "+STRING(i)+" RL "+SC_FMT(raw)});
+      END;
+      SC_SHOW("Intermediate levels",lines);
+      IF SIZE(SC_LSIGHTS)>0 THEN
+        j:=SC_MENU("Adjusted intermediate levels",{"Return","By setup distance","Equally by setup"});
+        IF j>1 THEN
+          out:=SC_LEVEL(SC_LROWS,SC_LSTART,SC_LFINISH,j==2); lines:={};
+          FOR i FROM 1 TO SIZE(SC_LSIGHTS) DO
+            r:=SC_LSIGHTS(i)(1); raw:=SC_LSTART;
+            IF r>1 THEN raw:=out(2)(r-1)(2); END;
+            raw:=raw+SC_LROWS(r)(1)-SC_LSIGHTS(i)(2);
+            lines:=CONCAT(lines,{"Sight "+STRING(i)+" adjusted RL "+SC_FMT(raw)});
+          END;
+          SC_SHOW("Adjusted intermediate levels",CONCAT(lines,{"Correction at setup's backsight point used.","Sight position within setup is not observed."}));
+        END;
+      END;
+    END;
+    IF c==7 THEN IF SC_MENU("Clear level observations?",{"Keep run","Clear run"})==2 THEN SC_LROWS:={}; SC_LSIGHTS:={}; END; END;
+  UNTIL 0;
+END;
+
+SC_ATRAVUI()
+BEGIN
+  LOCAL c,r,b,legs,i,lines,total;
+  REPEAT
+    c:=SC_MENU("ANGLE TRAVERSE",{"Set initial backsight bearing","Add clockwise turn / distance","View computed bearings","Copy computed legs to lot","Clear observations","Balance angle sum","View balanced bearings","Copy balanced legs to lot"});
+    IF c==0 THEN RETURN 0; END;
+    IF c==1 THEN b:=SC_BEAR("Initial backsight azimuth",SC_PACK(SC_TSTART)); IF SIZE(b)>0 THEN SC_TSTART:=b(1); END; END;
+    IF c==2 THEN
+      r:=SC_FORM("Angle traverse observation",{"Clockwise turn from backsight DD.MMSS","Forward horizontal distance (m)"},{90,1});
+      IF SIZE(r)>0 THEN
+        IF SC_DMSOK(r(1)) AND (r(1)>=0) AND (r(1)<360) AND (r(2)>0) THEN SC_TURNS:=CONCAT(SC_TURNS,{{SC_DEC(r(1)),r(2)}}); SC_TBALANCED:={};
+        ELSE SC_SHOW("Invalid observation",{"Turn 0..360 DMS; distance > 0."}); END;
+      END;
+    END;
+    IF (c==3) OR (c==4) OR (c==7) OR (c==8) THEN
+      r:=SC_TURNS;
+      IF c>=7 THEN r:=SC_TBALANCED; END;
+      b:=SC_TSTART; legs:={}; lines:={};
+      FOR i FROM 1 TO SIZE(r) DO
+        b:=SC_WRAP(b+r(i)(1)); legs:=CONCAT(legs,{{b,r(i)(2),0}});
+        lines:=CONCAT(lines,{STRING(i)+"  "+SC_ANGLE(b)+"  "+SC_FMT(r(i)(2))+" m"}); b:=SC_WRAP(b+180);
+      END;
+      IF (c==3) OR (c==7) THEN SC_SHOW("Computed traverse",CONCAT(lines,{"Original observed angles retained."})); END;
+      IF ((c==4) OR (c==8)) AND (SIZE(legs)>0) THEN
+        IF SC_MENU("Replace working lot?",{"Keep lot","Copy computed legs"})==2 THEN SC_LEGS:=legs; SC_ADJUSTED:={}; END;
+      END;
+    END;
+    IF c==5 THEN IF SC_MENU("Clear angle traverse?",{"Keep observations","Clear observations"})==2 THEN SC_TURNS:={}; SC_TBALANCED:={}; END; END;
+    IF c==6 THEN
+      IF SIZE(SC_TURNS)>=3 THEN
+        r:=SC_NUM("Angular balance","Required angle sum (decimal degrees)","Interior n-gon: (n-2)*180. Set correct convention.",(SIZE(SC_TURNS)-2)*180);
+        IF r(1) THEN
+          total:=0; FOR i FROM 1 TO SIZE(SC_TURNS) DO total:=total+SC_TURNS(i)(1); END;
+          b:=(r(2)-total)/SIZE(SC_TURNS); legs:={};
+          FOR i FROM 1 TO SIZE(SC_TURNS) DO legs:=CONCAT(legs,{{SC_TURNS(i)(1)+b,SC_TURNS(i)(2)}}); END;
+          SC_SHOW("Angular balance",{"Observed sum: "+SC_ANGLE(total),"Correction per angle: "+SC_ANGLE(b),"Original observations retained."});
+          IF SC_MENU("Keep balanced copy?",{"Cancel","Save balanced angles"})==2 THEN SC_TBALANCED:=legs; END;
+        END;
+      ELSE SC_SHOW("Angular balance",{"Enter at least three observed turns."}); END;
+    END;
+  UNTIL 0;
+END;
+
+SC_ROADUI()
+BEGIN
+  LOCAL c,r,a,i,p,lines,len;
+  REPEAT
+    c:=SC_MENU("ROAD ALIGNMENT",{"Set origin / bearing / chainage","Add straight","Add circular arc","Add clothoid transition","View elements","Set out chainage / offset","Clear alignment","Find chainage / offset of a point"});
+    IF c==0 THEN RETURN 0; END;
+    IF c==1 THEN
+      r:=SC_FORM("Alignment origin",{"Easting (m)","Northing (m)","Start azimuth DD.MMSS","Start chainage (m)"},{SC_ROADORIGIN(1),SC_ROADORIGIN(2),SC_PACK(SC_ROADORIGIN(3)),SC_ROADORIGIN(4)});
+      IF SIZE(r)>0 THEN IF SC_DMSOK(r(3)) THEN SC_ROADORIGIN:={r(1),r(2),SC_WRAP(SC_DEC(r(3))),r(4)}; END; END;
+    END;
+    IF c==2 THEN
+      r:=SC_NUM("Straight element","Length (m)","Positive length",1);
+      IF r(1) THEN IF r(2)>0 THEN SC_ROADLEGS:=CONCAT(SC_ROADLEGS,{{r(2),0,0}}); END; END;
+    END;
+    IF c==3 THEN
+      r:=SC_FORM("Circular element",{"Arc length (m)","Signed radius (m); right positive"},{10,100});
+      IF SIZE(r)>0 THEN
+        IF (r(1)>0) AND (r(2)<>0) THEN
+          IF r(1)/ABS(r(2))<=3.141592653589793 THEN SC_ROADLEGS:=CONCAT(SC_ROADLEGS,{{r(1),1/r(2),1/r(2)}});
+          ELSE SC_SHOW("Subdivide this circular element",{"Each element may turn at most 180 degrees."}); END;
+        ELSE SC_SHOW("Invalid circular element",{"Use positive length and nonzero radius."}); END;
+      END;
+    END;
+    IF c==4 THEN
+      r:=SC_FORM("Transition element",{"Length (m)","Entry signed radius (0 = straight)","Exit signed radius (0 = straight)"},{10,0,100});
+      IF SIZE(r)>0 THEN
+        IF r(1)>0 THEN
+          a:={0,0}; IF r(2)<>0 THEN a(1):=1/r(2); END; IF r(3)<>0 THEN a(2):=1/r(3); END;
+          IF r(1)*MAX(ABS(a(1)),ABS(a(2)))<=3.141592653589793 THEN
+            SC_ROADLEGS:=CONCAT(SC_ROADLEGS,{{r(1),a(1),a(2)}});
+          ELSE SC_SHOW("Subdivide this transition",{"Length times maximum curvature must be <= pi."}); END;
+        END;
+      END;
+    END;
+    IF c==5 THEN
+      lines:={"Length / entry curvature / exit curvature"};
+      FOR i FROM 1 TO SIZE(SC_ROADLEGS) DO
+        lines:=CONCAT(lines,{STRING(i)+": "+STRING(SC_ROADLEGS(i))});
+      END;
+      SC_SHOW("Alignment elements",lines);
+    END;
+    IF c==6 THEN
+      len:=SC_ROADORIGIN(4); FOR i FROM 1 TO SIZE(SC_ROADLEGS) DO len:=len+SC_ROADLEGS(i)(1); END;
+      r:=SC_FORM("Alignment setout",{"Chainage (m)","Offset right positive (m)"},{SC_ROADORIGIN(4),0});
+      IF SIZE(r)>0 THEN
+        IF (r(1)>=SC_ROADORIGIN(4)) AND (r(1)<=len) AND (SIZE(SC_ROADLEGS)>0) THEN
+          p:=SC_ROAD(SC_ROADLEGS,SC_ROADORIGIN,r(1),r(2));
+          SC_SHOW("Alignment setout",{"E "+SC_FMT(p(1)),"N "+SC_FMT(p(2)),"Tangent: "+SC_ANGLE(p(3)),"Curvature: "+STRING(p(4))+" /m"});
+        ELSE SC_SHOW("Chainage outside alignment",{"Range "+SC_FMT(SC_ROADORIGIN(4))+" to "+SC_FMT(len)}); END;
+      END;
+    END;
+    IF c==7 THEN IF SC_MENU("Clear alignment?",{"Keep alignment","Clear elements"})==2 THEN SC_ROADLEGS:={}; END; END;
+    IF c==8 THEN
+      IF SIZE(SC_ROADLEGS)>0 THEN
+        p:=SC_POINT("Point to project on alignment");
+        IF SIZE(p)>0 THEN
+          r:=SC_ROADNEAR(SC_ROADLEGS,SC_ROADORIGIN,p(1),p(2));
+          SC_SHOW("Closest alignment position",{"Chainage: "+SC_FMT(r(1)),"Right offset: "+SC_FMT(r(2)),"Distance to alignment: "+SC_FMT(r(3)),"Along residual: "+SC_FMT(r(4)),
+            "Nonzero residual indicates an endpoint.","Closest branch used if alignment overlaps."});
+        END;
+      ELSE SC_SHOW("No alignment",{"Enter alignment elements first."}); END;
+    END;
+  UNTIL 0;
+END;
+
+SC_PLUSUI()
+BEGIN
+  LOCAL c;
+  REPEAT
+    c:=SC_MENU("GEODESY / ROAD",{"Geodesy","Road alignment"});
+    IF c==0 THEN RETURN 0; END;
+    IF c==1 THEN SC_GEODUI(); END;
+    IF c==2 THEN SC_ROADUI(); END;
+  UNTIL 0;
+END;

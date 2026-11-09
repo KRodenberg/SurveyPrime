@@ -1,0 +1,48 @@
+SC_MISSINGUI()
+BEGIN
+  LOCAL c,r,e,n,a,b,d,sol,opts,pick,newlegs,lines,i;
+  IF SIZE(SC_LEGS)==0 THEN SC_SHOW("Missing elements",{"Enter the known legs first.","Unknown legs are appended to the lot."}); RETURN 0; END;
+  c:=SC_MENU("Missing closing elements",{"One complete missing leg","Two unknown distances","Two unknown bearings","One bearing / one distance"});
+  IF c==0 THEN RETURN 0; END;
+  r:=SC_CLOSE(SC_LEGS); e:=-r(1); n:=-r(2); opts:={}; lines:={};
+  IF c==1 THEN
+    IF r(3)<1E-9 THEN SC_SHOW("Already closed",{"No positive missing leg is required."}); RETURN 0; END;
+    opts:={{{SC_AZ(e,n),r(3),0}}};
+  END;
+  IF c==2 THEN
+    a:=SC_BEAR("First missing bearing",0); IF SIZE(a)==0 THEN RETURN 0; END;
+    b:=SC_BEAR("Second missing bearing",90); IF SIZE(b)==0 THEN RETURN 0; END;
+    sol:=SC_2DIST(e,n,a(1),b(1));
+    IF SIZE(sol)>0 THEN opts:={{{a(1),sol(1),0},{b(1),sol(2),0}}}; END;
+  END;
+  IF c==3 THEN
+    d:=SC_ASK("Known distances",{"First distance (m)","Second distance (m)"},{"Positive length","Positive length"},{1,1});
+    IF SIZE(d)==0 THEN RETURN 0; END;
+    sol:=SC_2BEAR(e,n,d(1),d(2));
+    IF SIZE(sol)>0 THEN
+      opts:={{{sol(1),d(1),0},{sol(2),d(2),0}},{{sol(3),d(1),0},{sol(4),d(2),0}}};
+    END;
+  END;
+  IF c==4 THEN
+    d:=SC_NUM("Known length","Length of unknown-bearing leg (m)","First missing leg; positive length",1);
+    IF d(1)==0 THEN RETURN 0; END;
+    b:=SC_BEAR("Known bearing of second leg",0); IF SIZE(b)==0 THEN RETURN 0; END;
+    IF d(2)>0 THEN
+      sol:=SC_MIXED(e,n,d(2),b(1));
+      FOR i FROM 1 TO SIZE(sol) DO
+        opts:=CONCAT(opts,{{{sol(i)(1),d(2),0},{b(1),sol(i)(2),0}}});
+      END;
+    END;
+  END;
+  IF SIZE(opts)==0 THEN SC_SHOW("No unique positive solution",{"Geometry is singular or impossible.","Check bearings and distances."}); RETURN 0; END;
+  FOR i FROM 1 TO SIZE(opts) DO
+    lines:={};
+    FOR pick FROM 1 TO SIZE(opts(i)) DO
+      lines:=CONCAT(lines,{"Leg "+STRING(pick)+": "+SC_ANGLE(opts(i)(pick)(1)),"Distance: "+SC_FMT(opts(i)(pick)(2))+" m"});
+    END;
+    SC_SHOW("Solution "+STRING(i)+" of "+STRING(SIZE(opts)),lines);
+    IF SC_MENU("Use this solution?",{"Keep observations unchanged","Append these closing legs"})==2 THEN
+      SC_LEGS:=CONCAT(SC_LEGS,opts(i)); SC_ADJUSTED:={}; RETURN 0;
+    END;
+  END;
+END;

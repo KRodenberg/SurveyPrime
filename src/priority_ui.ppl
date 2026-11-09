@@ -1,0 +1,315 @@
+// Persistent data is namespaced; no use of the user's matrices or lists.
+EXPORT SC_LEGS:={};
+EXPORT SC_JOBS:={};
+EXPORT SC_ORIGIN:={0,0};
+EXPORT SC_ADJUSTED:={};
+EXPORT SC_TEXT:="";
+
+SC_NEWLEG(initial)
+BEGIN
+  LOCAL b,r,t,seg:=0;
+  b:=SC_BEAR("Lot leg",SC_PACK(initial(1)));
+  IF SIZE(b)==0 THEN RETURN {}; END;
+  r:=SC_NUM("Lot leg","Distance (m)","Positive straight length or curve chord",initial(2));
+  IF r(1)==0 THEN RETURN {}; END;
+  IF r(2)<=0 THEN SC_SHOW("Invalid distance",{"Distance must be greater than zero."}); RETURN {}; END;
+  t:=SC_MENU("Boundary type",{"Straight","Curve: add segment area","Curve: subtract segment area"});
+  IF t==0 THEN RETURN {}; END;
+  IF t>1 THEN
+    seg:=SC_NUM("Circular boundary","Radius (m)","Minor arc only; radius >= half the chord",r(2));
+    IF seg(1)==0 THEN RETURN {}; END;
+    IF (seg(2)<=0) OR (2*seg(2)<r(2)) THEN
+      SC_SHOW("Invalid curve",{"Radius must be >= half the chord."}); RETURN {};
+    END;
+    seg:=SC_SEG(seg(2),r(2));
+    IF t==3 THEN seg:=-seg; END;
+  END;
+  RETURN {b(1),r(2),seg};
+END;
+
+SC_REPORT(legs,title)
+BEGIN
+  LOCAL r,lines,pc;
+  IF SIZE(legs)==0 THEN SC_SHOW(title,{"No legs. Choose Add leg first."}); RETURN 0; END;
+  r:=SC_CLOSE(legs);
+  lines:={"Legs: "+STRING(SIZE(legs)),"Error E: "+SC_FMT(r(1))+" m",
+    "Error N: "+SC_FMT(r(2))+" m","Misclose: "+SC_FMT(r(3))+" m",
+    "Closing brg: "+SC_ANGLE(r(4)),"Chord perimeter: "+SC_FMT(r(5))+" m",
+    "Area*: "+SC_FMT(r(6))+" m2","Area*: "+SC_FMT(r(6)/10000)+" ha"};
+  IF r(3)<1E-9 THEN
+    lines:=CONCAT(lines,{"Closure: within 1E-9 m"});
+  ELSE
+    lines:=CONCAT(lines,{"Ratio 1 : "+STRING(ROUND(r(7),0)),"Error bearing: "+SC_ANGLE(SC_WRAP(r(4)+180))});
+  END;
+  lines:=CONCAT(lines,{"*Open figure uses closing chord.","Curves use signed segment areas.","Area assumes a simple boundary.","Positive E = east; positive N = north."});
+  SC_SHOW(title,lines);
+END;
+
+SC_VIEWLEGS()
+BEGIN
+  LOCAL lines:={},i;
+  FOR i FROM 1 TO SIZE(SC_LEGS) DO
+    lines:=CONCAT(lines,{STRING(i)+"  "+SC_ANGLE(SC_LEGS(i)(1)),
+      "     "+SC_FMT(SC_LEGS(i)(2))+" m  seg "+SC_FMT(SC_LEGS(i)(3))});
+  END;
+  IF SIZE(lines)==0 THEN lines:={"No legs entered."}; END;
+  SC_SHOW("Observed lot legs",lines);
+END;
+
+SC_VIEWCOORDS(legs)
+BEGIN
+  LOCAL pts:=SC_COORDS(legs,SC_ORIGIN(1),SC_ORIGIN(2)),lines:={},i;
+  FOR i FROM 1 TO SIZE(pts) DO
+    lines:=CONCAT(lines,{"Point "+STRING(i),"E "+SC_FMT(pts(i)(1))+"  N "+SC_FMT(pts(i)(2))});
+  END;
+  SC_SHOW("Coordinates (m)",lines);
+END;
+
+SC_EDITLOT()
+BEGIN
+  LOCAL c,r,i,leg;
+  REPEAT
+    c:=SC_MENU("Edit observed lot",{"View legs","Replace leg","Insert before leg","Delete leg","Reverse entire lot","Rotate / scale","Set origin"});
+    IF c==0 THEN RETURN 0; END;
+    IF c==1 THEN SC_VIEWLEGS(); END;
+    IF (c>=2) AND (c<=4) THEN
+      r:=SC_NUM("Edit lot","Leg number","Legs numbered from 1",1);
+      IF r(1) THEN
+        i:=r(2);
+        IF (i<>FLOOR(i)) OR (i<1) OR (i>SIZE(SC_LEGS)+(c==3)) THEN
+          SC_SHOW("Invalid leg",{"Choose an existing leg number.","Insert also allows the end position."});
+        ELSE
+          IF c==4 THEN
+            IF SC_MENU("Delete this leg?",{"Keep leg","Delete leg"})==2 THEN
+              SC_LEGS:=SC_DELETE(SC_LEGS,i); SC_ADJUSTED:={};
+            END;
+          ELSE
+            leg:={0,1,0};
+            IF c==2 THEN leg:=SC_LEGS(i); END;
+            leg:=SC_NEWLEG(leg);
+            IF SIZE(leg)>0 THEN
+              IF c==2 THEN SC_LEGS(i):=leg; ELSE SC_LEGS:=SC_INSERT(SC_LEGS,i,leg); END;
+              SC_ADJUSTED:={};
+            END;
+          END;
+        END;
+      END;
+    END;
+    IF c==5 THEN SC_LEGS:=SC_REVERSE(SC_LEGS); SC_ADJUSTED:={}; END;
+    IF c==6 THEN
+      r:=SC_ASK("Rotate / scale",{"Rotation DD.MMSS","Scale multiplier"},
+        {"Clockwise positive; signed angle","Greater than zero. Area scales by factor squared."},{0,1});
+      IF SIZE(r)>0 THEN
+        IF SC_DMSOK(r(1)) AND (r(2)>0) THEN
+          FOR i FROM 1 TO SIZE(SC_LEGS) DO
+            SC_LEGS(i):={SC_WRAP(SC_LEGS(i)(1)+SC_DEC(r(1))),SC_LEGS(i)(2)*r(2),SC_LEGS(i)(3)*r(2)^2};
+          END;
+          SC_ADJUSTED:={};
+        ELSE SC_SHOW("Invalid transform",{"Check the angle and positive scale."}); END;
+      END;
+    END;
+    IF c==7 THEN
+      r:=SC_ASK("Lot origin",{"Easting (m)","Northing (m)"},{"Planar coordinate","Planar coordinate"},SC_ORIGIN);
+      IF SIZE(r)>0 THEN SC_ORIGIN:=r; END;
+    END;
+  UNTIL 0;
+END;
+
+SC_JOBMENU()
+BEGIN
+  LOCAL c,r,i,items,j;
+  REPEAT
+    c:=SC_MENU("Lot jobs",{"Save as new job","Open saved job","Delete saved job","New empty lot","Export current lot to SC_TEXT"});
+    IF c==0 THEN RETURN 0; END;
+    IF c==1 THEN
+      SC_JOBS:=CONCAT(SC_JOBS,{{SC_LEGS,SC_ORIGIN}});
+      SC_SHOW("Saved",{"Job "+STRING(SIZE(SC_JOBS))+" saved.","Observations and origin stored."});
+    END;
+    IF (c==2) OR (c==3) THEN
+      r:=SC_NUM("Saved lot jobs","Job number","Available: "+STRING(SIZE(SC_JOBS)),1);
+      IF r(1) THEN
+        i:=r(2);
+        IF (i>=1) AND (i<=SIZE(SC_JOBS)) AND (i==FLOOR(i)) THEN
+          IF c==2 THEN
+            IF SC_MENU("Replace working lot?",{"Cancel","Open saved job"})==2 THEN
+              SC_LEGS:=SC_JOBS(i)(1); SC_ORIGIN:=SC_JOBS(i)(2); SC_ADJUSTED:={};
+            END;
+          ELSE
+            IF SC_MENU("Delete saved job?",{"Keep saved job","Delete saved job"})==2 THEN SC_JOBS:=SC_DELETE(SC_JOBS,i); END;
+          END;
+        ELSE SC_SHOW("Invalid job",{"Choose a saved job number."}); END;
+      END;
+    END;
+    IF c==4 THEN
+      IF SC_MENU("Clear current lot?",{"Keep current lot","Start empty lot"})==2 THEN
+        SC_LEGS:={}; SC_ORIGIN:={0,0}; SC_ADJUSTED:={};
+      END;
+    END;
+    IF c==5 THEN
+      SC_TEXT:="leg,azimuth_deg,chord_m,segment_m2";
+      FOR i FROM 1 TO SIZE(SC_LEGS) DO
+        SC_TEXT:=SC_TEXT+CHAR(10)+STRING(i)+","+STRING(SC_LEGS(i)(1))+","+STRING(SC_LEGS(i)(2))+","+STRING(SC_LEGS(i)(3));
+      END;
+      SC_SHOW("Export ready",{"CSV stored in SC_TEXT.","Retrieve the variable using Connectivity Kit.","Saved jobs remain on the calculator."});
+    END;
+  UNTIL 0;
+END;
+
+SC_BOWUI()
+BEGIN
+  LOCAL c,r;
+  IF SIZE(SC_LEGS)<2 THEN SC_SHOW("Bowditch",{"Enter at least two positive-length legs."}); RETURN 0; END;
+  c:=SC_MENU("Bowditch target",{"Closed loop (same start/end)","Known end coordinate","View last adjusted coordinates"});
+  IF c==0 THEN RETURN 0; END;
+  IF c==3 THEN
+    IF SIZE(SC_ADJUSTED)==0 THEN SC_SHOW("Bowditch",{"No current adjustment."}); ELSE SC_VIEWCOORDS(SC_ADJUSTED); END;
+    RETURN 0;
+  END;
+  r:=SC_ORIGIN;
+  IF c==2 THEN
+    r:=SC_ASK("Known endpoint",{"End Easting (m)","End Northing (m)"},{"Fixed target coordinate","Fixed target coordinate"},SC_ORIGIN);
+    IF SIZE(r)==0 THEN RETURN 0; END;
+  END;
+  SC_ADJUSTED:=SC_BOW(SC_LEGS,r(1)-SC_ORIGIN(1),r(2)-SC_ORIGIN(2));
+  SC_REPORT(SC_ADJUSTED,"Bowditch adjusted (copy)");
+END;
+
+SC_LOT()
+BEGIN
+  LOCAL c,leg;
+  REPEAT
+    c:=SC_MENU("LOT CLOSE | "+STRING(SIZE(SC_LEGS))+" legs",{"Add leg","Misclose and area","View / edit legs","Coordinates","Bowditch adjustment","Save / open / new lot","Missing elements","Copy coordinates to point database","Undo last leg"});
+    IF c==0 THEN RETURN 0; END;
+    IF c==1 THEN
+      leg:=SC_NEWLEG({0,1,0});
+      IF SIZE(leg)>0 THEN SC_LEGS:=CONCAT(SC_LEGS,{leg}); SC_ADJUSTED:={}; END;
+    END;
+    IF c==2 THEN SC_REPORT(SC_LEGS,"Lot closure and area"); END;
+    IF c==3 THEN SC_EDITLOT(); END;
+    IF c==4 THEN SC_VIEWCOORDS(SC_LEGS); END;
+    IF c==5 THEN SC_BOWUI(); END;
+    IF c==6 THEN SC_JOBMENU(); END;
+    IF c==7 THEN SC_MISSINGUI(); END;
+    IF c==8 THEN SC_LOTPOINTS(); END;
+    IF c==9 THEN
+      IF SIZE(SC_LEGS)>0 THEN
+        IF SC_MENU("Remove last entered leg?",{"Keep leg","Undo last leg"})==2 THEN SC_LEGS:=SC_DELETE(SC_LEGS,SIZE(SC_LEGS)); SC_ADJUSTED:={}; END;
+      END;
+    END;
+  UNTIL 0;
+END;
+
+SC_LOTPOINTS()
+BEGIN
+  LOCAL r,pts,i,id,j,collision:=0,rows;
+  IF SIZE(SC_LEGS)==0 THEN SC_SHOW("Lot to points",{"Enter lot legs first."}); RETURN 0; END;
+  r:=SC_FORM("Lot to point database",{"First positive point ID","Height for all copied points (m)"},{1,0});
+  IF SIZE(r)==0 THEN RETURN 0; END;
+  IF (r(1)<1) OR (r(1)<>FLOOR(r(1))) THEN SC_SHOW("Invalid ID",{"Use a positive integer."}); RETURN 0; END;
+  pts:=SC_COORDS(SC_LEGS,SC_ORIGIN(1),SC_ORIGIN(2));
+  FOR i FROM 1 TO SIZE(pts) DO IF SC_FIND(r(1)+i-1)>0 THEN collision:=1; END; END;
+  IF collision THEN
+    IF SC_MENU("Some point IDs already exist",{"Cancel","Replace those IDs"})<>2 THEN RETURN 0; END;
+  ELSE
+    IF SC_MENU("Copy all chord endpoints?",{"Cancel","Copy coordinates"})<>2 THEN RETURN 0; END;
+  END;
+  rows:=SC_POINTS;
+  FOR i FROM 1 TO SIZE(pts) DO
+    id:=r(1)+i-1; j:=SC_FIND(id);
+    IF j>0 THEN rows(j):={id,pts(i)(1),pts(i)(2),r(2)};
+    ELSE rows:=CONCAT(rows,{{id,pts(i)(1),pts(i)(2),r(2)}}); END;
+  END;
+  SC_POINTS:=rows;
+  SC_SHOW("Lot coordinates copied",{STRING(SIZE(pts))+" points copied.","Start and final endpoint both included."});
+END;
+
+SC_ANGLES()
+BEGIN
+  LOCAL c,r,a,b,ans;
+  REPEAT
+    c:=SC_MENU("ANGLES | DD.MMSS entry",{"Add angles","Subtract angles (A - B)","Back bearing","Wrap angle to 0..360","Quadrant bearing to azimuth"});
+    IF c==0 THEN RETURN 0; END;
+    IF c<=2 THEN
+      r:=SC_ASK("Angle arithmetic",{"Angle A DD.MMSS","Angle B DD.MMSS"},{"Signed angle; e.g. 12.3045","Minutes/seconds below 60"},{0,0});
+      IF SIZE(r)>0 THEN
+        IF SC_DMSOK(r(1)) AND SC_DMSOK(r(2)) THEN
+          ans:=SC_DEC(r(1))+SC_DEC(r(2));
+          IF c==2 THEN ans:=SC_DEC(r(1))-SC_DEC(r(2)); END;
+          SC_SHOW("Angle result",{"Signed: "+SC_ANGLE(ans),"DD.MMSS: "+STRING(SC_PACK(ans)),
+            "Decimal: "+STRING(ans),"Wrapped: "+SC_ANGLE(SC_WRAP(ans))});
+        ELSE SC_SHOW("Invalid DMS",{"Minutes and seconds must be below 60."}); END;
+      END;
+    END;
+    IF (c==3) OR (c==4) THEN
+      r:=SC_NUM("Angle","Angle DD.MMSS","Signed angle",0);
+      IF r(1) THEN
+        IF SC_DMSOK(r(2)) THEN
+          a:=SC_DEC(r(2)); IF c==3 THEN a:=a+180; END;
+          SC_SHOW("Bearing result",{SC_ANGLE(SC_WRAP(a)),"DD.MMSS: "+STRING(SC_PACK(SC_WRAP(a)))});
+        ELSE SC_SHOW("Invalid DMS",{"Minutes and seconds must be below 60."}); END;
+      END;
+    END;
+    IF c==5 THEN
+      b:=SC_MENU("Quadrant",{"N angle E","S angle E","S angle W","N angle W"});
+      IF b>0 THEN
+        r:=SC_NUM("Quadrant angle","Angle DD.MMSS","Between 0 and 90 degrees",0);
+        IF r(1) THEN
+          IF SC_DMSOK(r(2)) AND (r(2)>=0) AND (r(2)<=90) THEN
+            a:=SC_DEC(r(2));
+            IF b==2 THEN a:=180-a; END;
+            IF b==3 THEN a:=180+a; END;
+            IF b==4 THEN a:=360-a; END;
+            SC_SHOW("Azimuth",{SC_ANGLE(SC_WRAP(a)),"DD.MMSS: "+STRING(SC_PACK(SC_WRAP(a)))});
+          ELSE SC_SHOW("Invalid quadrant angle",{"Use 0 to 90 degrees in DD.MMSS."}); END;
+        END;
+      END;
+    END;
+  UNTIL 0;
+END;
+
+SC_CONVERT()
+BEGIN
+  LOCAL c,u,v,r,x,units;
+  REPEAT
+    c:=SC_MENU("CONVERSIONS",{"DMS to decimal degrees","Decimal degrees to DMS","Degrees / radians / gon","Distance units","Area units","Acres / roods / perches"});
+    IF c==0 THEN RETURN 0; END;
+    IF c<=2 THEN
+      r:=SC_NUM("Angle conversion","Angle","DMS uses DD.MMSS; decimal uses degrees",0);
+      IF r(1) THEN
+        IF c==1 THEN
+          IF SC_DMSOK(r(2)) THEN SC_SHOW("Decimal degrees",{STRING(SC_DEC(r(2)))});
+          ELSE SC_SHOW("Invalid DMS",{"Minutes and seconds must be below 60."}); END;
+        ELSE SC_SHOW("DMS angle",{SC_ANGLE(r(2)),"DD.MMSS: "+STRING(SC_PACK(r(2)))}); END;
+      END;
+    END;
+    IF c>=3 THEN
+      IF c==3 THEN units:={"Decimal degrees","Radians","Gon (400 per turn)"}; END;
+      IF c==4 THEN units:={"Metres","International feet","US survey feet","Links (international)","Chains (international)","Kilometres","Inches (international)"}; END;
+      IF c==5 THEN units:={"Square metres","Hectares","Square international feet","Square US survey feet","Acres (international)","Square kilometres"}; END;
+      IF c<=5 THEN
+        u:=SC_MENU("Convert FROM",units);
+        IF u>0 THEN
+          v:=SC_MENU("Convert TO",units);
+          IF v>0 THEN
+            r:=SC_NUM("Conversion","Value",units(u),0);
+            IF r(1) THEN
+              IF c==3 THEN units:={1,180/3.141592653589793,0.9}; x:=r(2)*units(u)/units(v); END;
+              IF c==4 THEN x:=r(2)*SC_DFACT(u)/SC_DFACT(v); END;
+              IF c==5 THEN x:=r(2)*SC_AFACT(u)/SC_AFACT(v); END;
+              SC_SHOW("Converted value",{STRING(x),"Input: "+STRING(r(2)),"From unit "+STRING(u)+" to unit "+STRING(v)});
+            END;
+          END;
+        END;
+      ELSE
+        r:=SC_NUM("Acres / roods / perches","Area in square metres","International acre = 4046.8564224 m2",0);
+        IF r(1) THEN
+          IF r(2)<0 THEN SC_SHOW("Invalid area",{"Area must be nonnegative."});
+          ELSE
+            x:=r(2)/4046.8564224; u:=FLOOR(x); x:=(x-u)*4; v:=FLOOR(x); x:=(x-v)*40;
+            SC_SHOW("Acres / roods / perches",{STRING(u)+" ac  "+STRING(v)+" ro  "+SC_FMT(x)+" perch"});
+          END;
+        END;
+      END;
+    END;
+  UNTIL 0;
+END;

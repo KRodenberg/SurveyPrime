@@ -101,7 +101,7 @@ END;
 SC_SEG(r,ch)
 BEGIN
   LOCAL t:=2*ASIN(ch/(2*r));
-  RETURN r*r*(t*ACOS(-1)/180-SIN(t))/2;
+  RETURN r*r*(t*3.141592653589793/180-SIN(t))/2;
 END;
 
 SC_INSERT(legs,pos,leg)

@@ -1,0 +1,15 @@
+name: Validate SurveyPrime
+on: [push, pull_request, workflow_dispatch]
+permissions:
+  contents: read
+jobs:
+  host-tests-and-package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Execute PPL regression tests
+        run: python3 -m unittest discover -s tests -v
+      - name: Rebuild native package
+        run: python3 tools/build.py
+      - name: Verify committed release matches source
+        run: git diff --exit-code -- 'Final Output'

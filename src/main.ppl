@@ -1,0 +1,24 @@
+EXPORT SURVEYPRIME()
+BEGIN
+  LOCAL old:=HAngle,fmt:=HFormat,digits:=HDigits,seps:=HSeparator,c,problem:=0;
+  HAngle:=0; HFormat:=0; HDigits:=11; HSeparator:=0;
+  IFERR
+    REPEAT
+      c:=SC_MENU("SURVEY PRIME | keypad edition",{"Lot closes","Conversions","Add / subtract angles","Coordinate geometry","Survey utilities","Levelling","Angle traverse","Geodesy / road","Help / self-test"});
+      IF c==1 THEN SC_LOT(); END;
+      IF c==2 THEN SC_CONVERT(); END;
+      IF c==3 THEN SC_ANGLES(); END;
+      IF c==4 THEN SC_COGO(); END;
+      IF c==5 THEN SC_UTILS(); END;
+      IF c==6 THEN SC_LEVELUI(); END;
+      IF c==7 THEN SC_ATRAVUI(); END;
+      IF c==8 THEN SC_PLUSUI(); END;
+      IF c==9 THEN
+        IF SC_MENU("Help and validation",{"Keypad guide","Run self-test"})==2 THEN SURVEYTEST();
+        ELSE SC_SHOW("Keypad guide",{"Digits choose a numbered menu item.","Up/Down move; Enter selects.","Esc cancels one step or returns.","Use DD.MMSS for all DMS inputs.","Bearings clockwise from North.","All survey distances are metres.","Conversions name both units.","Working lot is retained on exit.","Save numbered jobs before editing."}); END;
+      END;
+    UNTIL c==0;
+  THEN problem:=1; END;
+  HAngle:=old; HFormat:=fmt; HDigits:=digits; HSeparator:=seps;
+  IF problem THEN SC_SHOW("Calculation stopped",{"Input caused a calculation error.","Saved jobs and observations are retained.","Check the geometry and try again."}); END;
+END;

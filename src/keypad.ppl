@@ -1,0 +1,151 @@
+// Every interaction uses GETKEY. Touch input is never read.
+SC_KEY()
+BEGIN
+  LOCAL k;
+  REPEAT k:=GETKEY; WAIT(0.02); UNTIL k>=0;
+  RETURN k;
+END;
+
+SC_DIGIT(k)
+BEGIN
+  LOCAL keys:={47,42,43,44,37,38,39,32,33,34},i;
+  FOR i FROM 1 TO 10 DO
+    IF k==keys(i) THEN RETURN i-1; END;
+  END;
+  RETURN -1;
+END;
+
+SC_FRAME(title,hint)
+BEGIN
+  RECT_P(0,0,319,239,RGB(247,249,252));
+  RECT_P(0,0,319,30,RGB(22,47,66));
+  TEXTOUT_P(title,9,6,2,RGB(255,255,255));
+  LINE_P(0,216,319,216,RGB(201,210,218));
+  TEXTOUT_P(hint,7,222,1,RGB(47,66,80));
+END;
+
+SC_MENU(title,items)
+BEGIN
+  LOCAL sel:=1,k,d,i,first;
+  REPEAT
+    SC_FRAME(title,"1-9 select  Arrows move  Enter OK  Esc back");
+    first:=1+7*FLOOR((sel-1)/7);
+    FOR i FROM first TO MIN(first+6,SIZE(items)) DO
+      IF i==sel THEN
+        RECT_P(5,35+24*(i-first),314,57+24*(i-first),RGB(217,236,241));
+      END;
+      TEXTOUT_P(STRING(i)+"  "+items(i),12,39+24*(i-first),2,RGB(20,43,58));
+    END;
+    k:=SC_KEY(); d:=SC_DIGIT(k);
+    IF k==4 THEN RETURN 0; END;
+    IF (d>=1) AND (d<=SIZE(items)) THEN RETURN d; END;
+    IF k==2 THEN sel:=1+((sel+SIZE(items)-2) MOD SIZE(items)); END;
+    IF k==12 THEN sel:=1+(sel MOD SIZE(items)); END;
+    IF k==30 THEN RETURN sel; END;
+  UNTIL 0;
+END;
+
+SC_SHOW(title,lines)
+BEGIN
+  LOCAL pos:=1,k,i,wrapped:={},s,cut;
+  FOR i FROM 1 TO SIZE(lines) DO
+    s:=lines(i);
+    WHILE SIZE(s)>43 DO
+      cut:=43;
+      WHILE (cut>20) AND (MID(s,cut,1)<>" ") DO cut:=cut-1; END;
+      IF cut==20 THEN cut:=43; END;
+      wrapped:=CONCAT(wrapped,{LEFT(s,cut)}); s:=RIGHT(s,SIZE(s)-cut);
+    END;
+    wrapped:=CONCAT(wrapped,{s});
+  END;
+  lines:=wrapped;
+  REPEAT
+    SC_FRAME(title,"Up/Down page  Enter or Esc return");
+    FOR i FROM pos TO MIN(pos+7,SIZE(lines)) DO
+      TEXTOUT_P(lines(i),10,39+21*(i-pos),2,RGB(20,43,58));
+    END;
+    k:=SC_KEY();
+    IF (k==30) OR (k==4) THEN RETURN 0; END;
+    IF k==12 THEN pos:=MIN(MAX(1,SIZE(lines)-7),pos+8); END;
+    IF k==2 THEN pos:=MAX(1,pos-8); END;
+  UNTIL 0;
+END;
+
+SC_NUM(title,label,help,initial)
+BEGIN
+  LOCAL text:=STRING(initial),fresh:=1,k,d,x,ok;
+  REPEAT
+    SC_FRAME(title,"Digits . +/- EEX  Backspace  Enter OK  Esc cancel");
+    TEXTOUT_P(LEFT(label,43),10,42,2,RGB(20,43,58));
+    IF SIZE(label)>43 THEN TEXTOUT_P(RIGHT(label,SIZE(label)-43),10,62,1,RGB(47,66,80)); END;
+    RECT_P(8,87,311,121,RGB(217,236,241));
+    TEXTOUT_P(text,13,94,3,RGB(20,43,58));
+    TEXTOUT_P(LEFT(help,50),10,140,1,RGB(47,66,80));
+    IF SIZE(help)>50 THEN TEXTOUT_P(RIGHT(help,SIZE(help)-50),10,156,1,RGB(47,66,80)); END;
+    TEXTOUT_P("Enter keeps the displayed value.",10,185,1,RGB(47,66,80));
+    k:=SC_KEY(); d:=SC_DIGIT(k);
+    IF k==4 THEN RETURN {0,0}; END;
+    IF k==30 THEN
+      ok:=1;
+      IFERR x:=EXPR(text); THEN ok:=0; END;
+      IF ok AND (TYPE(x)==0) THEN
+        IF ABS(x)<1E99 THEN RETURN {1,x}; END;
+      END;
+      SC_SHOW("Invalid number",{"Enter a real number.","Example: 123.456 or -1.25"});
+    END;
+    IF (d>=0) OR (k==48) THEN
+      IF fresh THEN text:=""; fresh:=0; END;
+      IF SIZE(text)<18 THEN
+        IF d>=0 THEN text:=text+STRING(d); END;
+        IF k==48 THEN text:=text+"."; END;
+      END;
+    END;
+    IF k==19 THEN
+      fresh:=0;
+      IF SIZE(text)>1 THEN text:=LEFT(text,SIZE(text)-1); ELSE text:=""; END;
+    END;
+    IF (k==27) OR (k==45) THEN
+      fresh:=0;
+      IF LEFT(text,1)=="-" THEN text:=RIGHT(text,SIZE(text)-1); ELSE text:="-"+text; END;
+    END;
+    IF k==31 THEN fresh:=0; text:=text+"E"; END;
+  UNTIL 0;
+END;
+
+SC_ASK(title,labels,helps,values)
+BEGIN
+  LOCAL out:={},i,r;
+  FOR i FROM 1 TO SIZE(labels) DO
+    r:=SC_NUM(title+" "+STRING(i)+"/"+STRING(SIZE(labels)),labels(i),helps(i),values(i));
+    IF r(1)==0 THEN RETURN {}; END;
+    out:=CONCAT(out,{r(2)});
+  END;
+  RETURN out;
+END;
+
+SC_FMT(x)
+BEGIN
+  RETURN STRING(ROUND(x,4));
+END;
+
+SC_ANGLE(a)
+BEGIN
+  LOCAL t,d,m,s,sign:="";
+  IF a<0 THEN sign:="-"; END;
+  t:=ROUND(ABS(a)*3600,2); d:=FLOOR(t/3600);
+  t:=t-3600*d; m:=FLOOR(t/60); s:=t-60*m;
+  RETURN sign+STRING(d)+"d "+STRING(m)+"m "+STRING(s)+"s";
+END;
+
+SC_BEAR(title,initial)
+BEGIN
+  LOCAL r;
+  REPEAT
+    r:=SC_NUM(title,"Azimuth DD.MMSS","Clockwise from North. 123.3045 = 123d30m45s",initial);
+    IF r(1)==0 THEN RETURN {}; END;
+    IF SC_DMSOK(r(2)) AND (r(2)>=0) AND (r(2)<360) THEN
+      RETURN {SC_DEC(r(2))};
+    END;
+    SC_SHOW("Invalid bearing",{"Use 0 <= bearing < 360 degrees.","Minutes and seconds must be below 60."});
+  UNTIL 0;
+END;

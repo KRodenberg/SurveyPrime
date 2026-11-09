@@ -1,0 +1,36 @@
+EXPORT SURVEYTEST()
+BEGIN
+  LOCAL old:=HAngle,r,legs,a,n:=0,failed:={},names:={},ok:={},i;
+  HAngle:=0;
+  IFERR
+    names:={"DMS carry","DMS borrow","Reject bad minutes","Reject bad seconds",
+      "Negative DMS","Wrap negative","Square closure","Square area","Back bearing",
+      "Feet / metre","US survey foot","Bowditch closure","Two missing lengths",
+      "Two missing bearings","Curved tutorial closure","Curved tutorial area"};
+    ok:={ABS(SC_PACK(SC_DEC(12.5959)+SC_DEC(0.0002))-13.0001)<1E-8,
+      ABS(SC_PACK(SC_DEC(10)-SC_DEC(0.0001))-9.5959)<1E-8,
+      SC_DMSOK(12.60)==0,SC_DMSOK(12.5960)==0,
+      ABS(SC_DEC(-0.30)+0.5)<1E-9,SC_WRAP(-1)==359};
+    legs:={{0,100,0},{90,100,0},{180,100,0},{270,100,0}};
+    r:=SC_CLOSE(legs);
+    ok:=CONCAT(ok,{r(3)<1E-9,ABS(r(6)-10000)<1E-6,SC_WRAP(270+180)==90,
+      ABS(SC_DFACT(2)*100-30.48)<1E-9,ABS(SC_DFACT(3)*3937-1200)<1E-9});
+    legs(4):={270,99.9,0}; r:=SC_CLOSE(SC_BOW(legs,0,0));
+    ok:=CONCAT(ok,{r(3)<1E-8});
+    r:=SC_2DIST(100,100,0,90); ok:=CONCAT(ok,{ABS(r(1)-100)+ABS(r(2)-100)<1E-8});
+    r:=SC_2BEAR(100,100,100,100); a:=SC_RAD(0,0,r(1),100); a:=SC_RAD(a(1),a(2),r(2),100);
+    ok:=CONCAT(ok,{ABS(a(1)-100)+ABS(a(2)-100)<1E-8});
+    legs:={{SC_DEC(36.0004),133.801,0},{SC_DEC(64.2937),35.155,SC_SEG(36.847,35.155)},
+      {SC_DEC(92.5915),107.89,0},{200,159.1,0},{SC_DEC(280.58),166.701,0}};
+    r:=SC_CLOSE(legs);
+    ok:=CONCAT(ok,{ABS(r(3)-0.058)<0.001,ABS(r(6)-21287.96)<0.02});
+    FOR i FROM 1 TO SIZE(ok) DO
+      IF ok(i) THEN n:=n+1; ELSE failed:=CONCAT(failed,{names(i)}); END;
+    END;
+  THEN
+    failed:=CONCAT(failed,{"Runtime error in self-test"});
+  END;
+  HAngle:=old;
+  SC_SHOW("SurveyPrime self-test",CONCAT({STRING(n)+" / "+STRING(SIZE(names))+" passed"},failed));
+  RETURN {n,SIZE(names),failed};
+END;
