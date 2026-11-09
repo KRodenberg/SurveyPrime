@@ -67,4 +67,3 @@ all four original program records remain byte-identical to the initial backup.
 
 Native verification is the main remaining release issue. The build also intentionally
 has the limitations detailed in `Feature Coverage.md` and `User Guide.md`.
-

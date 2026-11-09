@@ -24,4 +24,3 @@ for item in old:
 print('Byte-identical original records:',same,'/',len(old))
 print('Byte-identical original programs:',programs)
 print('Changed record types:',changed_types)
-

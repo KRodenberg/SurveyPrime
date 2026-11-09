@@ -34,7 +34,7 @@
 - [x] Transfer new `SURVEYPRIME` program and retrieve its full source byte-for-byte.
 - [x] Verify all four original program records remain byte-identical after transfers.
 - [x] Create/authenticate the private GitHub repository and initialize local history.
-- [ ] Push the complete final snapshot and confirm GitHub Actions checks.
+- [x] Push complete implementation; GitHub Actions host tests and reproducible package check passed.
 - [ ] Obtain a native syntax check and execute `SURVEYTEST()` on the target.
 - [ ] Verify every menu/form, persistence, graphics and settings restoration on native firmware.
 - [ ] Complete remaining Quickclose parity: regional GDF import/catalogs and generalized
@@ -46,6 +46,9 @@
 additional modules have implementation and host tests. Native execution is **not yet
 verified**; do not describe this as a completed/full-parity release.
 `docs/release/Feature Coverage.md` records supported workflows and remaining work.
+
+GitHub validation passed for implementation commit `3a7268d`:
+https://github.com/KRodenberg/SurveyPrime/actions/runs/42581060449
 
 The standalone diagnostic on the device is `SPTEST()` (16 priority checks). The full
 application's test is `SURVEYTEST()` to avoid duplicate exported names. Exit the running

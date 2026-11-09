@@ -45,4 +45,3 @@ is still pending for all modules. This build is **not full Quickclose feature pa
 The outstanding rows above remain tracked in the repository's `AGENTS.md`.
 Reference files remain in the local `Quickclose/` folder; release files contain the
 original implementation and its documentation.
-

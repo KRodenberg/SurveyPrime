@@ -63,4 +63,3 @@ The self-test does not replace a saved lot or point job.
 
 The earlier standalone diagnostic already transferred to the calculator is named
 `SPTEST()`. The packaged app uses `SURVEYTEST()` so the two can coexist.
-

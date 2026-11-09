@@ -62,4 +62,3 @@ Reproduce the original-program comparison with:
 ```powershell
 python tools/audit_backup.py work/device-backup-before work/device-backup-test
 ```
-

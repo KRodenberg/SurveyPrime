@@ -40,4 +40,3 @@ The on-calculator app does not require Python or any host dependency.
 
 Original source was written for this project from the functional requirements in
 the supplied manuals. Local reference material remains in `Quickclose/`.
-

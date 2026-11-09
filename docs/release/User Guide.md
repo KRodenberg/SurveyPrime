@@ -214,4 +214,3 @@ A hard ON interruption can bypass cleanup; check Home settings after interruptin
 Saved jobs should be backed up before editing/replacing the program, clearing memory,
 or resetting the calculator. CSV exports and computer backups are the interchange route;
 HP48/50 infrared printing and Kermit menus are replaced by Prime file exchange.
-

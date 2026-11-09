@@ -24,4 +24,3 @@ functional descriptions in the supplied reference collection.
   original Python diagnostic client. No third-party source is included in the app.
 - [libhpcalcs / hplp](https://github.com/debrouxl/hplp): protocol provenance cited
   by the connection-kit reference.
-
