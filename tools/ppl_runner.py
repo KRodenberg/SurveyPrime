@@ -63,6 +63,8 @@ class Parser:
         while True:
             token = self.peek()
             if token == '(':
+                if left[0] == 'call':
+                    raise SyntaxError('Use SC_ITEM for chained indexing on the target Prime firmware')
                 self.take()
                 args = []
                 while self.peek() != ')':
@@ -103,7 +105,10 @@ class Parser:
         token = self.peek()
         if token == 'LOCAL':
             self.take()
-            return ('local', self.declarations())
+            declarations = self.declarations()
+            if len(declarations) > 8:
+                raise SyntaxError('HP Prime permits at most 8 variables per LOCAL statement')
+            return ('local', declarations)
         if token == 'IF':
             self.take(); condition = self.expr(); self.take('THEN')
             yes = self.sequence({'ELSE', 'END'})
@@ -156,6 +161,8 @@ class Parser:
             self.take('('); args = []
             while self.peek() != ')':
                 args.append(self.take())
+                if args[-1] == 'e':
+                    raise SyntaxError('The target Prime firmware rejects parameter e; use a distinct name')
                 if self.peek() != ',': break
                 self.take(',')
             self.take(')')
@@ -171,7 +178,8 @@ class Parser:
 class Runner:
     def __init__(self, source):
         self.functions, globals_ = Parser(source).program()
-        self.globals = {'HAngle': 0, 'HFormat': 0, 'HDigits': 11, 'HSeparator': 0}
+        self.globals = {'HAngle': 0, 'AAngle': 0, 'HFormat': 0, 'AFormat': 0,
+                        'HDigits': 11, 'HSeparator': 0}
         self.keys = []
         self.drawn = []
         self.budget = 1000000
@@ -192,9 +200,13 @@ class Runner:
         return 0
 
     def builtin(self, name, args):
-        degree = self.globals['HAngle'] == 0
-        angle = lambda x: math.radians(x) if degree else x
-        inverse = lambda x: math.degrees(x) if degree else x
+        # Home: 0 radians, 1 degrees, 2 gradians. App: 0 inherits Home;
+        # otherwise its explicit mode is one greater than the Home enum.
+        appmode = self.globals['AAngle']
+        mode = appmode - 1 if appmode else self.globals['HAngle']
+        scale = {0: 1, 1: math.pi/180, 2: math.pi/200}[mode]
+        angle = lambda x: x * scale
+        inverse = lambda x: x / scale
         funcs = {'ABS': abs, 'FLOOR': math.floor, 'CEILING': math.ceil, 'SQRT': math.sqrt,
                  'SIN': lambda x: math.sin(angle(x)), 'COS': lambda x: math.cos(angle(x)),
                  'TAN': lambda x: math.tan(angle(x)), 'ATAN': lambda x: inverse(math.atan(x)),

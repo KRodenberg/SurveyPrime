@@ -47,10 +47,10 @@ END;
 
 SC_VIEWLEGS()
 BEGIN
-  LOCAL lines:={},i;
-  FOR i FROM 1 TO SIZE(SC_LEGS) DO
-    lines:=CONCAT(lines,{STRING(i)+"  "+SC_ANGLE(SC_LEGS(i)(1)),
-      "     "+SC_FMT(SC_LEGS(i)(2))+" m  seg "+SC_FMT(SC_LEGS(i)(3))});
+  LOCAL lines:={},ii;
+  FOR ii FROM 1 TO SIZE(SC_LEGS) DO
+    lines:=CONCAT(lines,{STRING(ii)+"  "+SC_ANGLE(SC_ITEM(SC_LEGS(ii),1)),
+      "     "+SC_FMT(SC_ITEM(SC_LEGS(ii),2))+" m  seg "+SC_FMT(SC_ITEM(SC_LEGS(ii),3))});
   END;
   IF SIZE(lines)==0 THEN lines:={"No legs entered."}; END;
   SC_SHOW("Observed lot legs",lines);
@@ -58,16 +58,16 @@ END;
 
 SC_VIEWCOORDS(legs)
 BEGIN
-  LOCAL pts:=SC_COORDS(legs,SC_ORIGIN(1),SC_ORIGIN(2)),lines:={},i;
-  FOR i FROM 1 TO SIZE(pts) DO
-    lines:=CONCAT(lines,{"Point "+STRING(i),"E "+SC_FMT(pts(i)(1))+"  N "+SC_FMT(pts(i)(2))});
+  LOCAL pts:=SC_COORDS(legs,SC_ORIGIN(1),SC_ORIGIN(2)),lines:={},ii;
+  FOR ii FROM 1 TO SIZE(pts) DO
+    lines:=CONCAT(lines,{"Point "+STRING(ii),"E "+SC_FMT(SC_ITEM(pts(ii),1))+"  N "+SC_FMT(SC_ITEM(pts(ii),2))});
   END;
   SC_SHOW("Coordinates (m)",lines);
 END;
 
 SC_EDITLOT()
 BEGIN
-  LOCAL c,r,i,leg;
+  LOCAL c,r,ii,obs;
   REPEAT
     c:=SC_MENU("Edit observed lot",{"View legs","Replace leg","Insert before leg","Delete leg","Reverse entire lot","Rotate / scale","Set origin"});
     IF c==0 THEN RETURN 0; END;
@@ -75,20 +75,20 @@ BEGIN
     IF (c>=2) AND (c<=4) THEN
       r:=SC_NUM("Edit lot","Leg number","Legs numbered from 1",1);
       IF r(1) THEN
-        i:=r(2);
-        IF (i<>FLOOR(i)) OR (i<1) OR (i>SIZE(SC_LEGS)+(c==3)) THEN
+        ii:=r(2);
+        IF (ii<>FLOOR(ii)) OR (ii<1) OR (ii>SIZE(SC_LEGS)+(c==3)) THEN
           SC_SHOW("Invalid leg",{"Choose an existing leg number.","Insert also allows the end position."});
         ELSE
           IF c==4 THEN
             IF SC_MENU("Delete this leg?",{"Keep leg","Delete leg"})==2 THEN
-              SC_LEGS:=SC_DELETE(SC_LEGS,i); SC_ADJUSTED:={};
+              SC_LEGS:=SC_DELETE(SC_LEGS,ii); SC_ADJUSTED:={};
             END;
           ELSE
-            leg:={0,1,0};
-            IF c==2 THEN leg:=SC_LEGS(i); END;
-            leg:=SC_NEWLEG(leg);
-            IF SIZE(leg)>0 THEN
-              IF c==2 THEN SC_LEGS(i):=leg; ELSE SC_LEGS:=SC_INSERT(SC_LEGS,i,leg); END;
+            obs:={0,1,0};
+            IF c==2 THEN obs:=SC_LEGS(ii); END;
+            obs:=SC_NEWLEG(obs);
+            IF SIZE(obs)>0 THEN
+              IF c==2 THEN SC_LEGS(ii):=obs; ELSE SC_LEGS:=SC_INSERT(SC_LEGS,ii,obs); END;
               SC_ADJUSTED:={};
             END;
           END;
@@ -101,8 +101,8 @@ BEGIN
         {"Clockwise positive; signed angle","Greater than zero. Area scales by factor squared."},{0,1});
       IF SIZE(r)>0 THEN
         IF SC_DMSOK(r(1)) AND (r(2)>0) THEN
-          FOR i FROM 1 TO SIZE(SC_LEGS) DO
-            SC_LEGS(i):={SC_WRAP(SC_LEGS(i)(1)+SC_DEC(r(1))),SC_LEGS(i)(2)*r(2),SC_LEGS(i)(3)*r(2)^2};
+          FOR ii FROM 1 TO SIZE(SC_LEGS) DO
+            SC_LEGS(ii):={SC_WRAP(SC_ITEM(SC_LEGS(ii),1)+SC_DEC(r(1))),SC_ITEM(SC_LEGS(ii),2)*r(2),SC_ITEM(SC_LEGS(ii),3)*r(2)^2};
           END;
           SC_ADJUSTED:={};
         ELSE SC_SHOW("Invalid transform",{"Check the angle and positive scale."}); END;
@@ -117,7 +117,7 @@ END;
 
 SC_JOBMENU()
 BEGIN
-  LOCAL c,r,i,items,j;
+  LOCAL c,r,ii,items,j;
   REPEAT
     c:=SC_MENU("Lot jobs",{"Save as new job","Open saved job","Delete saved job","New empty lot","Export current lot to SC_TEXT"});
     IF c==0 THEN RETURN 0; END;
@@ -128,14 +128,14 @@ BEGIN
     IF (c==2) OR (c==3) THEN
       r:=SC_NUM("Saved lot jobs","Job number","Available: "+STRING(SIZE(SC_JOBS)),1);
       IF r(1) THEN
-        i:=r(2);
-        IF (i>=1) AND (i<=SIZE(SC_JOBS)) AND (i==FLOOR(i)) THEN
+        ii:=r(2);
+        IF (ii>=1) AND (ii<=SIZE(SC_JOBS)) AND (ii==FLOOR(ii)) THEN
           IF c==2 THEN
             IF SC_MENU("Replace working lot?",{"Cancel","Open saved job"})==2 THEN
-              SC_LEGS:=SC_JOBS(i)(1); SC_ORIGIN:=SC_JOBS(i)(2); SC_ADJUSTED:={};
+              SC_LEGS:=SC_ITEM(SC_JOBS(ii),1); SC_ORIGIN:=SC_ITEM(SC_JOBS(ii),2); SC_ADJUSTED:={};
             END;
           ELSE
-            IF SC_MENU("Delete saved job?",{"Keep saved job","Delete saved job"})==2 THEN SC_JOBS:=SC_DELETE(SC_JOBS,i); END;
+            IF SC_MENU("Delete saved job?",{"Keep saved job","Delete saved job"})==2 THEN SC_JOBS:=SC_DELETE(SC_JOBS,ii); END;
           END;
         ELSE SC_SHOW("Invalid job",{"Choose a saved job number."}); END;
       END;
@@ -147,8 +147,8 @@ BEGIN
     END;
     IF c==5 THEN
       SC_TEXT:="leg,azimuth_deg,chord_m,segment_m2";
-      FOR i FROM 1 TO SIZE(SC_LEGS) DO
-        SC_TEXT:=SC_TEXT+CHAR(10)+STRING(i)+","+STRING(SC_LEGS(i)(1))+","+STRING(SC_LEGS(i)(2))+","+STRING(SC_LEGS(i)(3));
+      FOR ii FROM 1 TO SIZE(SC_LEGS) DO
+        SC_TEXT:=SC_TEXT+CHAR(10)+STRING(ii)+","+STRING(SC_ITEM(SC_LEGS(ii),1))+","+STRING(SC_ITEM(SC_LEGS(ii),2))+","+STRING(SC_ITEM(SC_LEGS(ii),3));
       END;
       SC_SHOW("Export ready",{"CSV stored in SC_TEXT.","Retrieve the variable using Connectivity Kit.","Saved jobs remain on the calculator."});
     END;
@@ -176,13 +176,13 @@ END;
 
 SC_LOT()
 BEGIN
-  LOCAL c,leg;
+  LOCAL c,obs;
   REPEAT
     c:=SC_MENU("LOT CLOSE | "+STRING(SIZE(SC_LEGS))+" legs",{"Add leg","Misclose and area","View / edit legs","Coordinates","Bowditch adjustment","Save / open / new lot","Missing elements","Copy coordinates to point database","Undo last leg"});
     IF c==0 THEN RETURN 0; END;
     IF c==1 THEN
-      leg:=SC_NEWLEG({0,1,0});
-      IF SIZE(leg)>0 THEN SC_LEGS:=CONCAT(SC_LEGS,{leg}); SC_ADJUSTED:={}; END;
+      obs:=SC_NEWLEG({0,1,0});
+      IF SIZE(obs)>0 THEN SC_LEGS:=CONCAT(SC_LEGS,{obs}); SC_ADJUSTED:={}; END;
     END;
     IF c==2 THEN SC_REPORT(SC_LEGS,"Lot closure and area"); END;
     IF c==3 THEN SC_EDITLOT(); END;
@@ -201,23 +201,24 @@ END;
 
 SC_LOTPOINTS()
 BEGIN
-  LOCAL r,pts,i,id,j,collision:=0,rows;
+  LOCAL r,pts,ii,id,j,collision:=0;
+  LOCAL rows;
   IF SIZE(SC_LEGS)==0 THEN SC_SHOW("Lot to points",{"Enter lot legs first."}); RETURN 0; END;
   r:=SC_FORM("Lot to point database",{"First positive point ID","Height for all copied points (m)"},{1,0});
   IF SIZE(r)==0 THEN RETURN 0; END;
   IF (r(1)<1) OR (r(1)<>FLOOR(r(1))) THEN SC_SHOW("Invalid ID",{"Use a positive integer."}); RETURN 0; END;
   pts:=SC_COORDS(SC_LEGS,SC_ORIGIN(1),SC_ORIGIN(2));
-  FOR i FROM 1 TO SIZE(pts) DO IF SC_FIND(r(1)+i-1)>0 THEN collision:=1; END; END;
+  FOR ii FROM 1 TO SIZE(pts) DO IF SC_FIND(r(1)+ii-1)>0 THEN collision:=1; END; END;
   IF collision THEN
     IF SC_MENU("Some point IDs already exist",{"Cancel","Replace those IDs"})<>2 THEN RETURN 0; END;
   ELSE
     IF SC_MENU("Copy all chord endpoints?",{"Cancel","Copy coordinates"})<>2 THEN RETURN 0; END;
   END;
   rows:=SC_POINTS;
-  FOR i FROM 1 TO SIZE(pts) DO
-    id:=r(1)+i-1; j:=SC_FIND(id);
-    IF j>0 THEN rows(j):={id,pts(i)(1),pts(i)(2),r(2)};
-    ELSE rows:=CONCAT(rows,{{id,pts(i)(1),pts(i)(2),r(2)}}); END;
+  FOR ii FROM 1 TO SIZE(pts) DO
+    id:=r(1)+ii-1; j:=SC_FIND(id);
+    IF j>0 THEN rows(j):={id,SC_ITEM(pts(ii),1),SC_ITEM(pts(ii),2),r(2)};
+    ELSE rows:=CONCAT(rows,{{id,SC_ITEM(pts(ii),1),SC_ITEM(pts(ii),2),r(2)}}); END;
   END;
   SC_POINTS:=rows;
   SC_SHOW("Lot coordinates copied",{STRING(SIZE(pts))+" points copied.","Start and final endpoint both included."});

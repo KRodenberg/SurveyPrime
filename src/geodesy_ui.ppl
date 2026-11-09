@@ -1,0 +1,184 @@
+// Geodesy menus and persistent point jobs.
+EXPORT SC_PROJ:={6378137,298.257222101,153,0,0.9996,500000,10000000};
+EXPORT SC_BLOCK:={0,0,0};
+EXPORT SC_GPOINTS:={};
+EXPORT SC_GJOBS:={};
+EXPORT SC_GROWS:={};
+
+SC_GEODUI()
+BEGIN
+  LOCAL c,r,out,p,q,ii;
+  LOCAL a,b,par,k,heights;
+  REPEAT
+    c:=SC_MENU("GEODESY | explicit projection",{"Ellipsoid / projection settings","Latitude / longitude to grid","Grid to latitude / longitude","Geodetic <-> Cartesian XYZ","Seven-parameter transform","Ellipsoidal inverse / grid join","Grid / ground distance","Grid radiation and block shift","Geodetic point jobs / CSV"});
+    IF c==0 THEN RETURN 0; END;
+    IF c==1 THEN
+      ii:=SC_MENU("Projection setup",{"UTM / MGA zone (GRS80)","UTM zone (WGS84)","Custom Transverse Mercator","View current parameters"});
+      IF (ii==1) OR (ii==2) THEN
+        r:=SC_FORM("UTM configuration",{"UTM zone 1..60","Hemisphere: 1 South / 0 North"},{56,1});
+        IF SIZE(r)>0 THEN
+          IF (r(1)>=1) AND (r(1)<=60) AND (r(1)==FLOOR(r(1))) AND ((r(2)==0) OR (r(2)==1)) THEN
+            a:=298.257222101; IF ii==2 THEN a:=298.257223563; END;
+            SC_PROJ:={6378137,a,6*r(1)-183,0,0.9996,500000,10000000*r(2)};
+          ELSE SC_SHOW("Invalid UTM setup",{"Zone 1..60 and hemisphere 0 or 1."}); END;
+        END;
+      END;
+      IF ii==3 THEN
+        r:=SC_FORM("Custom projection",{"Semi-major axis a (m)","Inverse flattening","Central meridian (decimal deg)","Origin latitude (decimal deg)","Central scale k0","False Easting (m)","False Northing (m)"},SC_PROJ);
+        IF SIZE(r)>0 THEN
+          IF (r(1)>0) AND (r(2)>100) AND (r(5)>0) AND (ABS(r(4))<85) AND (ABS(r(3))<=180) THEN SC_PROJ:=r;
+          ELSE SC_SHOW("Invalid projection",{"Check ellipsoid, scale and origin."}); END;
+        END;
+      END;
+      IF ii==4 THEN SC_SHOW("Projection parameters",{"a: "+STRING(SC_PROJ(1)),"1/f: "+STRING(SC_PROJ(2)),"Lon0: "+STRING(SC_PROJ(3)),"Lat0: "+STRING(SC_PROJ(4)),"k0: "+STRING(SC_PROJ(5)),"False E: "+STRING(SC_PROJ(6)),"False N: "+STRING(SC_PROJ(7)),"Ellipsoid alone does not define a datum.","Use appropriate epoch / transform parameters."}); END;
+    END;
+    IF c==2 THEN
+      r:=SC_FORM("Geodetic to grid",{"Latitude decimal degrees (South negative)","Longitude decimal degrees (East positive)"},{-33,151});
+      IF SIZE(r)>0 THEN
+        IF (r(1)>=-80) AND (r(1)<=84) AND (ABS(r(2)-SC_PROJ(3))<=3.5) THEN
+          out:=SC_GRID(r(1),r(2),SC_PROJ);
+          SC_SHOW("Grid coordinate",{"E "+SC_FMT(out(1)),"N "+SC_FMT(out(2)),"Point scale: "+STRING(out(3)),"Convergence (approx): "+SC_ANGLE(out(4)),"Series valid within 3.5 deg of lon0."});
+        ELSE SC_SHOW("Outside supported grid domain",{"Latitude -80..84; longitude within 3.5d of lon0."}); END;
+      END;
+    END;
+    IF c==3 THEN
+      r:=SC_FORM("Grid to geodetic",{"Grid Easting (m)","Grid Northing (m)"},{SC_PROJ(6),SC_PROJ(7)});
+      IF SIZE(r)>0 THEN
+        out:=SC_UNGRID(r(1),r(2),SC_PROJ);
+        IF (out(1)>=-80) AND (out(1)<=84) AND (ABS(out(2)-SC_PROJ(3))<=3.5) THEN
+          SC_SHOW("Geodetic coordinate",{"Latitude: "+STRING(out(1)),"Longitude: "+STRING(out(2)),SC_ANGLE(out(1)),SC_ANGLE(out(2))});
+        ELSE SC_SHOW("Outside supported grid domain",{"Check grid zone, hemisphere and coordinates."}); END;
+      END;
+    END;
+    IF c==4 THEN
+      ii:=SC_MENU("Cartesian conversion",{"Latitude / longitude / h to XYZ","XYZ to latitude / longitude / h"});
+      IF ii==1 THEN
+        r:=SC_FORM("Geodetic to XYZ",{"Latitude decimal deg","Longitude decimal deg","Ellipsoidal height (m)"},{-33,151,0});
+        IF SIZE(r)>0 THEN IF (ABS(r(1))<=90) AND (ABS(r(2))<=180) THEN out:=SC_ECEF(r(1),r(2),r(3),SC_PROJ); SC_SHOW("Cartesian XYZ",{"X "+SC_FMT(out(1)),"Y "+SC_FMT(out(2)),"Z "+SC_FMT(out(3))}); END; END;
+      END;
+      IF ii==2 THEN
+        r:=SC_FORM("XYZ to geodetic",{"X (m)","Y (m)","Z (m)"},{6378137,0,0});
+        IF SIZE(r)>0 THEN
+          IF ABS(r(1))+ABS(r(2))+ABS(r(3))>1 THEN out:=SC_UNECEF(r(1),r(2),r(3),SC_PROJ); SC_SHOW("Geodetic",{"Lat "+STRING(out(1)),"Lon "+STRING(out(2)),"Ellipsoidal h "+SC_FMT(out(3))}); END;
+        END;
+      END;
+    END;
+    IF c==5 THEN
+      r:=SC_FORM("Position-vector transform",{"X (m)","Y (m)","Z (m)"},{0,0,0});
+      IF SIZE(r)>0 THEN
+        par:=SC_FORM("Transform parameters",{"Translation X (m)","Translation Y (m)","Translation Z (m)","Rotation X (arcseconds)","Rotation Y (arcseconds)","Rotation Z (arcseconds)","Scale (ppm)"},{0,0,0,0,0,0,0});
+        IF SIZE(par)>0 THEN out:=SC_HELMERT(r,par); SC_SHOW("Transformed XYZ",{"X "+SC_FMT(out(1)),"Y "+SC_FMT(out(2)),"Z "+SC_FMT(out(3)),"Position-vector convention."}); END;
+      END;
+    END;
+    IF c==6 THEN
+      r:=SC_FORM("Ellipsoidal inverse",{"A latitude decimal deg","A longitude decimal deg","B latitude decimal deg","B longitude decimal deg"},{-33,151,-33.1,151.1});
+      IF SIZE(r)>0 THEN
+        IF (ABS(r(1))<90) AND (ABS(r(3))<90) AND (ABS(r(2))<=180) AND (ABS(r(4))<=180) THEN
+          out:=SC_VINCENTY(r(1),r(2),r(3),r(4),SC_PROJ);
+          IF SIZE(out)>0 THEN
+            SC_SHOW("Ellipsoidal inverse",{"Distance: "+SC_FMT(out(1))+" m","Forward azimuth: "+SC_ANGLE(out(2)),"Reverse azimuth: "+SC_ANGLE(out(3)),"Selected ellipsoid; height not included."});
+            IF (ABS(r(2)-SC_PROJ(3))<=3.5) AND (ABS(r(4)-SC_PROJ(3))<=3.5) THEN
+              p:=SC_GRID(r(1),r(2),SC_PROJ); q:=SC_GRID(r(3),r(4),SC_PROJ); a:=SC_JOIN(p(1),p(2),q(1),q(2));
+              SC_SHOW("Grid chord / scale",{"Grid bearing: "+SC_ANGLE(a(1)),"Grid distance: "+SC_FMT(a(2)),"Line scale: "+STRING(a(2)/MAX(out(1),1E-12)),
+                "Plane minus grid-bearing azimuth:",SC_ANGLE(out(2)-p(4)-a(1)),"Convergence / arc-to-chord approximate."});
+            END;
+          ELSE SC_SHOW("Inverse did not converge",{"Near-antipodal geometry is unsupported."}); END;
+        END;
+      END;
+    END;
+    IF c==7 THEN
+      r:=SC_FORM("Combined distance factor",{"Point grid scale k","Mean ellipsoidal height (m)","Distance (m)","Mode: 1 ground to grid / 0 grid to ground"},{0.9996,0,100,1});
+      IF SIZE(r)>0 THEN
+        IF (r(1)>0) AND (r(2)>-6300000) AND ((r(4)==0) OR (r(4)==1)) THEN
+          k:=r(1)*6371000/(6371000+r(2)); a:=r(3)/k; IF r(4)==1 THEN a:=r(3)*k; END;
+          SC_SHOW("Distance reduction",{"Combined factor: "+STRING(k),"Output distance: "+SC_FMT(a)+" m","Mean-radius height reduction.","Use ellipsoidal height; h = RL + geoid N."});
+        END;
+      END;
+    END;
+    IF c==8 THEN
+      ii:=SC_MENU("Grid operations",{"Radiate grid bearing / grid distance","Set block E / N / height shift","Apply block shift to coordinate"});
+      IF ii==1 THEN
+        p:=SC_POINT("Grid start point"); b:=SC_BEAR("Grid bearing",0); r:=SC_NUM("Grid radiation","Grid distance (m)","Positive distance; reduce ground distance first",1);
+        IF (SIZE(p)>0) AND (SIZE(b)>0) AND r(1) THEN IF r(2)>0 THEN out:=SC_RAD(p(1),p(2),b(1),r(2)); SC_STORE({out(1),out(2),p(3)}); END; END;
+      END;
+      IF ii==2 THEN r:=SC_FORM("Block shift",{"Shift E (m)","Shift N (m)","Shift height (m)"},SC_BLOCK); IF SIZE(r)>0 THEN SC_BLOCK:=r; END; END;
+      IF ii==3 THEN p:=SC_POINT("Point to shift"); IF SIZE(p)>0 THEN SC_STORE({p(1)+SC_BLOCK(1),p(2)+SC_BLOCK(2),p(3)+SC_BLOCK(3)}); END; END;
+    END;
+    IF c==9 THEN SC_GDATA(); END;
+  UNTIL 0;
+END;
+
+SC_GDATA()
+BEGIN
+  LOCAL c,r,ii,j,found,lines;
+  LOCAL p,valid;
+  REPEAT
+    c:=SC_MENU("GEODETIC POINT JOBS",{"View latitude / longitude / h","Add / replace point","Delete point","Save job with projection","Open saved job","Export CSV to SC_TEXT","Import SC_GROWS","Delete saved job"});
+    IF c==0 THEN RETURN 0; END;
+    IF c==1 THEN
+      lines:={};
+      FOR ii FROM 1 TO SIZE(SC_GPOINTS) DO
+        p:=SC_GPOINTS(ii);
+        lines:=CONCAT(lines,{"ID "+STRING(p(1))+"  h "+SC_FMT(p(4)),"Lat "+STRING(p(2)),"Lon "+STRING(p(3))});
+      END;
+      SC_SHOW("Geodetic coordinates",CONCAT(lines,{"End of list. Heights are ellipsoidal."}));
+    END;
+    IF c==2 THEN
+      r:=SC_FORM("Geodetic point",{"Positive integer ID","Latitude decimal deg","Longitude decimal deg","Ellipsoidal height (m)"},{SIZE(SC_GPOINTS)+1,-33,151,0});
+      IF SIZE(r)>0 THEN
+        IF (r(1)>0) AND (r(1)==FLOOR(r(1))) AND (ABS(r(2))<=90) AND (ABS(r(3))<=180) THEN
+          found:=0;
+          FOR ii FROM 1 TO SIZE(SC_GPOINTS) DO IF SC_ITEM(SC_GPOINTS(ii),1)==r(1) THEN found:=ii; END; END;
+          IF found==0 THEN SC_GPOINTS:=CONCAT(SC_GPOINTS,{r});
+          ELSE IF SC_MENU("Replace geodetic point?",{"Keep point","Replace point"})==2 THEN SC_GPOINTS(found):=r; END; END;
+        ELSE SC_SHOW("Invalid point",{"Check ID and latitude / longitude range."}); END;
+      END;
+    END;
+    IF c==3 THEN
+      r:=SC_NUM("Delete geodetic point","Point ID","Confirmation required",1);
+      IF r(1) THEN
+        found:=0; FOR ii FROM 1 TO SIZE(SC_GPOINTS) DO IF SC_ITEM(SC_GPOINTS(ii),1)==r(2) THEN found:=ii; END; END;
+        IF found>0 THEN IF SC_MENU("Delete geodetic point?",{"Keep point","Delete point"})==2 THEN SC_GPOINTS:=SC_DELETE(SC_GPOINTS,found); END; END;
+      END;
+    END;
+    IF c==4 THEN
+      SC_GJOBS:=CONCAT(SC_GJOBS,{{SC_GPOINTS,SC_PROJ}});
+      SC_SHOW("Geodetic job saved",{"Job "+STRING(SIZE(SC_GJOBS)),"Coordinates and projection parameters saved."});
+    END;
+    IF (c==5) OR (c==8) THEN
+      r:=SC_NUM("Saved geodetic jobs","Job number","Available: "+STRING(SIZE(SC_GJOBS)),1);
+      IF r(1) THEN
+        ii:=r(2);
+        IF (ii>=1) AND (ii<=SIZE(SC_GJOBS)) AND (ii==FLOOR(ii)) THEN
+          IF SC_MENU("Confirm job action",{"Cancel","Proceed"})==2 THEN
+            IF c==5 THEN SC_GPOINTS:=SC_ITEM(SC_GJOBS(ii),1); SC_PROJ:=SC_ITEM(SC_GJOBS(ii),2);
+            ELSE SC_GJOBS:=SC_DELETE(SC_GJOBS,ii); END;
+          END;
+        END;
+      END;
+    END;
+    IF c==6 THEN
+      SC_TEXT:="id,latitude_deg,longitude_deg,ellipsoidal_height_m";
+      FOR ii FROM 1 TO SIZE(SC_GPOINTS) DO
+        p:=SC_GPOINTS(ii); SC_TEXT:=SC_TEXT+CHAR(10)+STRING(p(1))+","+STRING(p(2))+","+STRING(p(3))+","+STRING(p(4));
+      END;
+      SC_SHOW("Geodetic CSV ready",{"Retrieve SC_TEXT using Connectivity Kit."});
+    END;
+    IF c==7 THEN
+      valid:=1;
+      IFERR
+        FOR ii FROM 1 TO SIZE(SC_GROWS) DO
+          IF SIZE(SC_GROWS(ii))<>4 THEN valid:=0; ELSE
+            FOR j FROM 1 TO 4 DO IF TYPE(SC_ITEM(SC_GROWS(ii),j))<>0 THEN valid:=0; END; END;
+            p:=SC_GROWS(ii);
+            IF (p(1)<1) OR (p(1)<>FLOOR(p(1))) OR (ABS(p(2))>90) OR (ABS(p(3))>180) THEN valid:=0; END;
+            FOR j FROM 1 TO ii-1 DO IF SC_ITEM(SC_GROWS(j),1)==p(1) THEN valid:=0; END; END;
+          END;
+        END;
+      THEN valid:=0; END;
+      IF valid AND (SIZE(SC_GROWS)>0) THEN
+        IF SC_MENU("Replace geodetic points?",{"Cancel","Import SC_GROWS"})==2 THEN SC_GPOINTS:=SC_GROWS; END;
+      ELSE SC_SHOW("No valid geodetic rows",{"Set SC_GROWS to {{ID,lat,lon,h},...}.","Use unique IDs and decimal degrees."}); END;
+    END;
+  UNTIL 0;
+END;

@@ -1,7 +1,8 @@
 EXPORT SURVEYTEST()
 BEGIN
-  LOCAL old:=HAngle,r,legs,a,n:=0,failed:={},names:={},ok:={},i;
-  HAngle:=0;
+  LOCAL old:=HAngle,appangle:=AAngle,r,legs,a,n:=0;
+  LOCAL failed:={},names:={},ok:={},ii;
+  AAngle:=0; HAngle:=1;
   IFERR
     names:={"DMS carry","DMS borrow","Reject bad minutes","Reject bad seconds",
       "Negative DMS","Wrap negative","Square closure","Square area","Back bearing",
@@ -24,13 +25,13 @@ BEGIN
       {SC_DEC(92.5915),107.89,0},{200,159.1,0},{SC_DEC(280.58),166.701,0}};
     r:=SC_CLOSE(legs);
     ok:=CONCAT(ok,{ABS(r(3)-0.058)<0.001,ABS(r(6)-21287.96)<0.02});
-    FOR i FROM 1 TO SIZE(ok) DO
-      IF ok(i) THEN n:=n+1; ELSE failed:=CONCAT(failed,{names(i)}); END;
+    FOR ii FROM 1 TO SIZE(ok) DO
+      IF ok(ii) THEN n:=n+1; ELSE failed:=CONCAT(failed,{names(ii)}); END;
     END;
   THEN
     failed:=CONCAT(failed,{"Runtime error in self-test"});
   END;
-  HAngle:=old;
+  HAngle:=old; AAngle:=appangle;
   SC_SHOW("SurveyPrime self-test",CONCAT({STRING(n)+" / "+STRING(SIZE(names))+" passed"},failed));
   RETURN {n,SIZE(names),failed};
 END;

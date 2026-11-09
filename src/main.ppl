@@ -1,7 +1,9 @@
 EXPORT SURVEYPRIME()
 BEGIN
-  LOCAL old:=HAngle,fmt:=HFormat,digits:=HDigits,seps:=HSeparator,c,problem:=0;
-  HAngle:=0; HFormat:=0; HDigits:=11; HSeparator:=0;
+  LOCAL old:=HAngle,fmt:=HFormat,digits:=HDigits,seps:=HSeparator;
+  LOCAL appangle:=AAngle,appformat:=AFormat,c,problem:=0;
+  AAngle:=0; AFormat:=0;
+  HAngle:=1; HFormat:=0; HDigits:=11; HSeparator:=0;
   IFERR
     REPEAT
       c:=SC_MENU("SURVEY PRIME | keypad edition",{"Lot closes","Conversions","Add / subtract angles","Coordinate geometry","Survey utilities","Levelling","Angle traverse","Geodesy / road","Help / self-test"});
@@ -20,5 +22,6 @@ BEGIN
     UNTIL c==0;
   THEN problem:=1; END;
   HAngle:=old; HFormat:=fmt; HDigits:=digits; HSeparator:=seps;
+  AAngle:=appangle; AFormat:=appformat;
   IF problem THEN SC_SHOW("Calculation stopped",{"Input caused a calculation error.","Saved jobs and observations are retained.","Check the geometry and try again."}); END;
 END;

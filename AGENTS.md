@@ -9,10 +9,11 @@ work with physical keys; the user's touchscreen cannot be used.
 
 Repository: https://github.com/KRodenberg/SurveyPrime
 
-The program is a **development preview**. There are 34 passing host regression tests.
-An earlier USB transfer and source round-trip succeeded, but native compilation and
-execution have not been verified. Never describe host interpretation or successful
-transfer as proof that HP firmware compiles or executes the program.
+The program is a **development preview**. There are 39 passing host regression tests.
+All three generated programs have passed native editor checks on the connected
+Prime, and the main menu launches. Physical-key and calculation acceptance is in
+progress. Never describe host interpretation or
+successful transfer as proof that HP firmware executes the program.
 
 ## Required repository files
 
@@ -40,16 +41,24 @@ python -m unittest discover -s tests -v
 python tools/build.py
 ```
 
-From a clean checkout the build creates these files in the ignored `Final Output/`:
+From a clean checkout the build creates seven files in the ignored `Final Output/`:
 
-- `SURVEYPRIME.hpprgm`: named UTF-16LE program container for the Connectivity Kit.
-- `SURVEYPRIME.ppl`: assembled, readable source for inspection or the Prime editor.
-- `SHA256.json`: hashes of those two generated files.
+- `Programs/SURVEYLIB.hpprgm`, `Programs/SURVEYTOOLS1.hpprgm`,
+  `Programs/SURVEYPRIME.hpprgm`: native programs,
+  installed in that order. Launch only `SURVEYPRIME()` for the surveying menus.
+- Matching `.ppl` files in `Source/`: readable source for inspection or the computer editor.
+- `SHA256.json`: hashes of all six generated program/source files.
 
-The builder verifies that decoding the container reproduces its name and source.
-It hoists exported variables before functions and generates forward declarations for
-private helper functions. Keep the module order and declaration handling intact when
-editing the builder. Do not require local reference folders or documentation to build.
+The native container uses the Prime magic `7c618ab2`, a source-only Connectivity Kit
+skeleton and UTF-16LE source. Its name comes from the filename. The generic skeleton's
+MIT notice is preserved in `tools/build.py`; never remove it.
+
+The builder hoists persistent variables into the first program, exports namespaced
+helpers, orders helpers before callers, and splits at function boundaries below
+30,000 source characters per program. It emits declarations before ordered local
+initializations. Keep the dependency order, size budget and declaration handling
+intact. Do not introduce cyclic function dependencies or rely on local reference
+folders, downloaded tools or documentation to build.
 
 The host interpreter covers this project's PPL subset. It checks actual source, with
 independent fixtures including the Quickclose curved-lot example, PROJ projection/
@@ -60,16 +69,23 @@ geodesic results, and simulated keypad workflows. It is not HP's compiler.
 1. Build and run the host tests using the commands above.
 2. Open the [official HP Prime Connectivity Kit](https://updates.moravia-consulting.com/)
    on the computer and connect a powered-on HP Prime by USB.
-3. Back up the calculator before replacing an installed program. Exported `SC_` data
+3. Back up the calculator before replacing any installed program. Exported `SC_` data
    and saved jobs must be preserved before program replacement or memory reset.
-4. Open `Final Output/SURVEYPRIME.hpprgm` in the Kit's program editor and run its
-   syntax check. Fix any native syntax errors before accepting the build.
-5. Send the program to the calculator. If the packaged container cannot be opened,
-   create a computer-side Prime program named `SURVEYPRIME`, paste the complete
-   `SURVEYPRIME.ppl` source, syntax-check it, and send it through the Kit.
-6. Exit any running RPN program using Esc; On can interrupt a program. Then press
-   **Home**, use Alpha to enter **`SURVEYPRIME()`**, and press **Enter**. A running
-   custom program can consume Home, so exit it first.
+4. In `Final Output/Programs/`, open and send `SURVEYLIB.hpprgm`, then
+   `SURVEYTOOLS1.hpprgm`, then `SURVEYPRIME.hpprgm`. Check each dependency before
+   checking the next program.
+   The names and order matter because later programs call earlier exported helpers.
+   If using source, create each correctly named computer-side program and paste its
+   matching `.ppl` file from `Final Output/Source/`. Do not paste the three files
+   into one large program.
+5. For an on-device check, press **Shift + 1**, highlight the required program with
+   arrows, press **Enter** to open its editor, then **Esc** to save/check. Fix any
+   reported error before proceeding. The catalog moves recently opened programs to
+   the top, so verify the highlighted name rather than counting from a stale order.
+6. Exit any running program using Esc; On can interrupt a program. Then press
+   **Home**, use Alpha to enter **`SURVEYPRIME()`**, release Alpha lock, and press
+   **Enter**. The Home title shows the active app's name; that title alone does not
+   indicate that its custom program is running.
 7. In SurveyPrime press **9**, then **2**, to run the self-test. Alternatively enter
    **`SURVEYTEST()`** from Home. Expect **16 / 16 passed**.
 
@@ -110,7 +126,8 @@ the actual device/firmware and observed results here when these checks are compl
 | `priority_ui.ppl` | Lot workflows/jobs/exchange, conversions and angle arithmetic |
 | `missing_ui.ppl` | Missing closing-leg workflows and alternate solutions |
 | `geometry.ppl` | COGO, resection, clipping, levels, road geometry and face reduction |
-| `geodesy.ppl` | Explicit TM/UTM, ECEF, Helmert, Vincenty and geodetic jobs |
+| `geodesy.ppl` | Explicit TM/UTM, ECEF, Helmert and Vincenty calculations |
+| `geodesy_ui.ppl` | Geodesy menus and persistent geodetic point-job workflows |
 | `extended_ui.ppl` | COGO, point jobs, utilities, levels, angle traverse and road menus |
 | `selftest.ppl` | Exported `SURVEYTEST()` with 16 priority checks |
 | `main.ppl` | Exported `SURVEYPRIME()`, top-level navigation and settings cleanup |
@@ -119,8 +136,11 @@ Use namespaced `SC_` variables for persistent jobs and working data. Keep observ
 separate from adjusted results; ask before replacing saved data. Do not use the user's
 general-purpose matrices or lists as scratch storage.
 
-Main execution uses degree mode (`HAngle:=0`) and restores Home angle/number settings
-on normal exit or a caught error. A hard On interruption can bypass cleanup. Keep
+Main execution uses degree mode (`HAngle:=1`) with `AAngle:=0` so the active app
+inherits Home's setting. Home modes are 0 radians, 1 degrees and 2 gradians; app
+modes are 0 inherit, 1 radians, 2 degrees and 3 gradians. Restore both Home and app
+angle/number settings on normal exit or a caught error. A hard On interruption can
+bypass cleanup. Keep
 pure calculations separate from input and display routines. Use GETKEY for interaction;
 do not add touch APIs, touch buttons, MOUSE, or touch-dependent input dialogs.
 
@@ -128,12 +148,31 @@ do not add touch APIs, touch buttons, MOUSE, or touch-dependent input dialogs.
 
 - [x] Priority lot-close, conversion and angle workflows implemented before extensions.
 - [x] Additional COGO, levelling, traverse, utility, geodesy and road modules implemented.
-- [x] 34 host tests passing; calculation self-test has 16 priority cases.
-- [x] Native program packaging and earlier USB source round-trip verified.
+- [x] 39 host tests passing; calculation self-test has 16 priority cases.
+- [x] Real native container packaging, independent container reading and USB source round-trips.
 - [x] Minimal build/validation repository; generated output and local materials ignored.
-- [ ] Native compiler acceptance and successful on-calculator self-test.
+- [x] Native editor/compiler acceptance of all three generated programs.
+- [x] Main menu launched on the physical calculator.
+- [ ] Successful on-calculator self-test.
 - [ ] Native keypad, graphics, persistence and Home-setting acceptance checks.
 - [ ] Regional GDF import/catalogs and generalized nonconvex/curved fixed-area cuts.
+
+On 2026-11-10 the user reported a native "Syntax error". Fixes include smaller
+`LOCAL` groups, explicit ordered initialization, distinct parameter names (including
+replacing `e`), degree mode with the app override cleared, and a correctly terminated
+USB source payload. The original package wrapper was also replaced with the actual
+native container format. A monolithic program and a 60,000-character menu program
+stalled the native editor/compiler. The three programs below 30,000 characters each
+passed native checks. Helpers are ordered before callers without forward prototypes.
+
+Native diagnostics used the USB-connected Prime (product ID `2441`, reported version
+`V2.060.650`), without changing firmware. Backups and diagnostic programs remain local
+and ignored. USB screenshots and keypad events support diagnosis despite the broken
+touchscreen. Host interpretation and a linter remain supplementary checks.
+USB key arrays can navigate native catalogs but dropped letters during Alpha entry;
+use individually paced keys for names. USB-injected keys did not move the running
+GETKEY menu. A physical-key test has been requested; do not claim it passed until
+its result is observed.
 
 Current fixed-area cutting is limited to convex straight lots. Resection and alignment
 inversion are numerical solvers. Projection is limited to latitude -80..84 degrees and
@@ -149,6 +188,10 @@ Do not claim full Quickclose parity or a uniform accuracy guarantee from the hos
 - Preserve existing calculator programs and back up data before transfers or replacement.
 - Review both valid geometric solutions where applicable; validate units and input ranges.
 - Use a pi constant independently of angle mode; `ACOS(-1)` returns 180 in degree mode.
+- Declare at most eight variables per `LOCAL` statement; split larger groups while
+  preserving initialization order. Keep native angle enums in host tests accurate.
+- Avoid built-in symbol names for parameters and loop indices; current code uses
+  `ee`, `ii`, `idx` and `obs`. Use `SC_ITEM` for portable multi-level list access.
 
 ## References
 

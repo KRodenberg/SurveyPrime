@@ -7,8 +7,8 @@ import unittest
 
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0,str(ROOT/'tools'))
-from build import source, encode, decode
-from ppl_runner import Runner
+from build import source, encode, decode, portable_locals, native_sources
+from ppl_runner import Parser, Runner
 
 
 class SurveyTests(unittest.TestCase):
@@ -18,6 +18,9 @@ class SurveyTests(unittest.TestCase):
 
     def setUp(self):
         self.r = Runner(self.text)
+        # Pure survey helpers take decimal-degree angles. Real Prime degree
+        # mode is 1; entry points establish it independently of caller settings.
+        self.r.globals['HAngle'] = 1
 
     def call(self, name, *args):
         return self.r.call(name,*args)
@@ -26,16 +29,21 @@ class SurveyTests(unittest.TestCase):
         self.assertAlmostEqual(a,b,delta=tol)
 
     def test_native_program_container(self):
-        self.assertEqual(decode(encode('SURVEYPRIME',self.text)),('SURVEYPRIME',self.text))
+        for name,text in native_sources().items():
+            data=encode(text)
+            self.assertEqual(data[:4],bytes.fromhex('7c618ab2'))
+            self.assertEqual(decode(data),text)
+            self.assertLess(len(text),30000,name)
 
     def test_selftest(self):
         self.r.keys=[30]
         self.assertEqual(self.call('SURVEYTEST'),[16,16,[]])
 
     def test_selftest_restores_radians(self):
-        self.r.globals['HAngle']=1; self.r.keys=[30]
+        self.r.globals.update(HAngle=0,AAngle=1); self.r.keys=[30]
         self.assertEqual(self.call('SURVEYTEST'),[16,16,[]])
-        self.assertEqual(self.r.globals['HAngle'],1)
+        self.assertEqual(self.r.globals['HAngle'],0)
+        self.assertEqual(self.r.globals['AAngle'],1)
 
     def test_signed_dms_and_boundaries(self):
         for a,b in [(0.30,0.5),(-0.0001,-1/3600),(360,360),(12.3456,12+34/60+56/3600)]:
@@ -239,9 +247,11 @@ class SurveyTests(unittest.TestCase):
         self.r.keys=[30]; self.assertEqual(self.call('SC_NUM','t','l','h',5),[1,5])
 
     def test_main_exit_restores_mode(self):
-        self.r.globals.update(HAngle=1,HFormat=2,HDigits=7,HSeparator=1); self.r.keys=[4]
+        self.r.globals.update(HAngle=0,AAngle=2,HFormat=2,AFormat=2,HDigits=7,HSeparator=1); self.r.keys=[4]
         self.call('SURVEYPRIME')
-        self.assertEqual(self.r.globals['HAngle'],1)
+        self.assertEqual(self.r.globals['HAngle'],0)
+        self.assertEqual(self.r.globals['AAngle'],2)
+        self.assertEqual(self.r.globals['AFormat'],2)
         self.assertEqual(self.r.globals['HFormat'],2)
         self.assertEqual(self.r.globals['HDigits'],7)
         self.assertEqual(self.r.globals['HSeparator'],1)
@@ -260,6 +270,46 @@ class SurveyTests(unittest.TestCase):
     def test_touch_apis_absent(self):
         stripped='\n'.join(line.split('//',1)[0] for line in self.text.splitlines())
         self.assertNotRegex(stripped,r'\b(?:MOUSE|DRAWMENU|INPUT|CHOOSE|WAIT\(-1\))\b')
+
+    def test_prime_angle_mode_constants(self):
+        self.r.globals.update(HAngle=0,AAngle=0)
+        self.closeEnough(self.call('SIN',math.pi/2),1)
+        self.r.globals['HAngle']=1
+        self.closeEnough(self.call('SIN',90),1)
+        self.closeEnough(self.call('ATAN',1),45)
+        self.r.globals['HAngle']=2
+        self.closeEnough(self.call('SIN',100),1)
+        self.closeEnough(self.call('ATAN',1),50)
+
+    def test_app_angle_mode_overrides_home(self):
+        self.r.globals.update(HAngle=0,AAngle=2)
+        self.closeEnough(self.call('SIN',90),1)
+        self.r.globals.update(HAngle=1,AAngle=1)
+        self.closeEnough(self.call('SIN',math.pi/2),1)
+        self.r.keys=[30]
+        self.assertEqual(self.call('SURVEYTEST'),[16,16,[]])
+        self.assertEqual(self.r.globals['AAngle'],1)
+        self.assertEqual(self.r.globals['HAngle'],1)
+
+    def test_native_local_declaration_limit(self):
+        valid='EXPORT OK() BEGIN LOCAL a,b,c,d,e,f,g,h; RETURN 0; END;'
+        self.assertIn('OK',Parser(valid).program()[0])
+        invalid='EXPORT BAD() BEGIN LOCAL a,b,c,d,e,f,g,h,j; RETURN 0; END;'
+        with self.assertRaisesRegex(SyntaxError,'at most 8'):
+            Parser(invalid).program()
+
+    def test_observed_native_syntax_constraints(self):
+        with self.assertRaisesRegex(SyntaxError,'parameter e'):
+            Parser('EXPORT BAD(e) BEGIN RETURN e; END;').program()
+        with self.assertRaisesRegex(SyntaxError,'chained indexing'):
+            Parser('EXPORT BAD(xs) BEGIN RETURN xs(1)(2); END;').program()
+        self.assertEqual(self.call('SC_ITEM',[[1,2],[3,4]],2),[3,4])
+        self.assertEqual(self.call('SC_ITEM',self.call('SC_ITEM',[[1,2],[3,4]],2),1),3)
+
+    def test_dependent_local_initializers(self):
+        text = ('EXPORT LOCALS() BEGIN LOCAL row:={3,4},distance:=row(2),'
+                'signed:=-distance; RETURN {row,distance,signed}; END;')
+        self.assertEqual(Runner(portable_locals(text)).call('LOCALS'),[[3,4],4,-4])
 
 
 if __name__ == '__main__': unittest.main()
