@@ -11,5 +11,3 @@ jobs:
         run: python3 -m unittest discover -s tests -v
       - name: Rebuild native package
         run: python3 tools/build.py
-      - name: Verify committed release matches source
-        run: git diff --exit-code -- 'Final Output'

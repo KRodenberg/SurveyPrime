@@ -1,6 +1,2 @@
-* text=auto
-*.ppl text eol=lf
-*.py text eol=lf
-*.md text eol=lf
+* text=auto eol=lf
 *.hpprgm binary
-*.png binary

@@ -1,7 +1,23 @@
-/Quickclose/
-/work/
-__pycache__/
-*.pyc
-/.venv/
-/Final Output/*.zip
+# Track only the program source, required build/validation files, and agent guide.
+/*
+!/.gitignore
+!/.gitattributes
+!/AGENTS.md
+!/.github/
+/.github/*
+!/.github/workflows/
+/.github/workflows/*
+!/.github/workflows/validate.yml
+!/src/
+/src/*
+!/src/*.ppl
+!/tools/
+/tools/*
+!/tools/build.py
+!/tools/ppl_runner.py
+!/tests/
+/tests/*
+!/tests/test_surveyprime.py
 
+__pycache__/
+*.py[cod]

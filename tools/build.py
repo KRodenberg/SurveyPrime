@@ -4,7 +4,6 @@ import hashlib
 import json
 import re
 import struct
-import shutil
 
 ROOT = Path(__file__).resolve().parents[1]
 
@@ -48,10 +47,11 @@ def build():
     assert decode(native) == ('SURVEYPRIME',text)
     (dest/'SURVEYPRIME.hpprgm').write_bytes(native)
     (dest/'SURVEYPRIME.ppl').write_text(text,encoding='utf-8',newline='\n')
-    for doc in (ROOT/'docs'/'release').glob('*.md'):
-        shutil.copyfile(doc,dest/doc.name)
-    manifest = {p.name:hashlib.sha256(p.read_bytes()).hexdigest()
-                for p in sorted(dest.iterdir()) if p.is_file() and p.name!='SHA256.json'}
+    # Only generated build files belong in the manifest. Local notes or older
+    # documentation in the output directory are not build inputs or artifacts.
+    artifacts = ['SURVEYPRIME.hpprgm', 'SURVEYPRIME.ppl']
+    manifest = {name:hashlib.sha256((dest/name).read_bytes()).hexdigest()
+                for name in artifacts}
     (dest/'SHA256.json').write_text(json.dumps(manifest,indent=2)+'\n',encoding='utf-8')
     print(f'Built {len(text.splitlines())} lines, {len(native)} native bytes')
 
