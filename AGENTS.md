@@ -11,9 +11,10 @@ Repository: https://github.com/KRodenberg/SurveyPrime
 
 SurveyPrime is a **development preview** with a native Apps-library package and
 41 passing host regression tests. Its three support programs previously passed native
-editor checks on the connected Prime, and their main menu launches. The new app's
-installation and Apps-library launch still need device verification. Physical-key and
-calculation acceptance is in progress. Never describe host interpretation or
+editor checks on the connected Prime. The native app is installed, its survey icon
+appears in the Apps library, and arrow/Enter key events launch the surveying menu.
+Physical-key operation within that running menu and calculation acceptance remain
+in progress. Never describe host interpretation or
 successful transfer as proof that HP firmware executes the program.
 
 ## Required repository files
@@ -171,7 +172,7 @@ do not add touch APIs, touch buttons, MOUSE, or touch-dependent input dialogs.
 - [x] Minimal build/validation repository; generated output and local materials ignored.
 - [x] Native editor/compiler acceptance of all three generated programs.
 - [x] Main menu launched on the physical calculator.
-- [ ] New app installed and launched from the physical Apps library.
+- [x] New app installed and launched from the physical Apps library using key events.
 - [ ] Successful on-calculator self-test.
 - [ ] Native keypad, graphics, persistence and Home-setting acceptance checks.
 - [ ] Regional GDF import/catalogs and generalized nonconvex/curved fixed-area cuts.
@@ -195,10 +196,13 @@ its result is observed.
 
 The Apps-library conversion adds a small native app while retaining the already
 compiled support programs. The launcher, package structure, PNG dimensions/checksums
-and settings restoration have host coverage. Installation is awaiting an idle
-calculator: a full backup timed out while the existing GETKEY menu was running, and
-physical Esc/On followed by Home has been requested. Do not replace an app or saved
-jobs without first obtaining the calculator backup.
+and settings restoration have host coverage. On 2026-11-10 the user exited to Home,
+allowing a fresh complete backup. Installation added one app object (55 objects
+before, 56 after); all pre-existing app and program sources were verified unchanged.
+The app source round-trip matched. USB key events opened Apps, highlighted the
+SurveyPrime icon and launched it with Enter; the surveying main menu was observed.
+This verifies the Apps-library entry and native START hook, not every running-menu
+or calculation workflow. Do not replace an app or saved jobs without a backup.
 
 Current fixed-area cutting is limited to convex straight lots. Resection and alignment
 inversion are numerical solvers. Projection is limited to latitude -80..84 degrees and
